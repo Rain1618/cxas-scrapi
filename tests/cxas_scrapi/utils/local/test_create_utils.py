@@ -303,21 +303,13 @@ def test_create_tool_add_to_agent(tmp_path):
 
     display_name = "My Added Tool"
     safe_name = "My_Added_Tool"
-    mock_dict = {"displayName": agent_name, "tools": [display_name]}
-    patch_path = (
-        "cxas_scrapi.utils.local.create_utils.json_format.MessageToDict"
-    )
 
-    with mock.patch(
-        "cxas_scrapi.utils.local.create_utils.json_format.ParseDict"
-    ):
-        with mock.patch(patch_path, return_value=mock_dict):
-            result_path = utils.create_tool(
-                display_name,
-                app_dir,
-                tool_type="GOOGLE_SEARCH",
-                add_to_agent=agent_name,
-            )
+    result_path = utils.create_tool(
+        display_name,
+        app_dir,
+        tool_type="GOOGLE_SEARCH",
+        add_to_agent=agent_name,
+    )
 
     # Verify tool created
     assert Path(result_path) == tmp_path / "tools" / safe_name

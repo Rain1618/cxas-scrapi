@@ -45,11 +45,9 @@ def test_sessions_init(mock_client_cls):
     sessions = Sessions(
         app_name="projects/p/locations/l/apps/a",
         deployment_id="d1",
-        version_id="v1",
     )
     assert sessions.app_name == "projects/p/locations/l/apps/a"
     assert sessions.deployment_id == "d1"
-    assert sessions.version_id == "v1"
 
 
 def test_get_file_data(tmp_path):
@@ -108,7 +106,6 @@ def test_run_session_advanced(mock_client_cls):
         blob_mime_type="image/jpeg",
         variables={"var1": "value1"},
         deployment_id="dep1",
-        version_id="ver1",
     )
 
     mock_client.run_session.assert_called_once()
@@ -123,6 +120,13 @@ def test_send_event(mock_client_cls):
     sessions.send_event("unique_id", "my_event", {"var1": "val1"})
 
     mock_client.run_session.assert_called_once()
+
+    call_kwargs = mock_client.run_session.call_args.kwargs
+    args = mock_client.run_session.call_args.args
+    request = call_kwargs.get("request") or args[0]
+
+    assert dict(request.inputs[0].variables) == {"var1": "val1"}
+    assert request.inputs[1].event.event == "my_event"
 
 
 @patch("cxas_scrapi.core.sessions.SessionServiceClient")
@@ -367,10 +371,9 @@ def test_create_session_id(mock_client_cls):
 
 
 @patch("cxas_scrapi.core.sessions.json_format.MessageToJson")
-@patch("cxas_scrapi.core.sessions.ces_v1beta.SessionInput")
 @patch("cxas_scrapi.core.sessions.time.sleep")
 def test_bidi_session_handler_send_audio_message_with_variables(
-    mock_sleep, mock_session_input, mock_to_json
+    mock_sleep, mock_to_json
 ):
     mock_to_json.return_value = "{}"
     config = {"session": "session_123"}
@@ -391,14 +394,21 @@ def test_bidi_session_handler_send_audio_message_with_variables(
 
     handler._send_inputs()
 
-    # Verify that SessionInput was called with variables
-    calls = mock_session_input.call_args_list
+    # Verify that MessageToJson was called with variables in SessionInput
+    calls = mock_to_json.call_args_list
     found_vars = False
     for call in calls:
-        kwargs = call[1]
-        if "variables" in kwargs and kwargs["variables"] == {"var": "val"}:
-            found_vars = True
-            break
+        args = call.args
+        if args:
+            msg_pb = args[0]
+            try:
+                msg_dict = json_format.MessageToDict(msg_pb)
+                ri = msg_dict.get("realtimeInput", {})
+                if ri.get("variables") == {"var": "val"}:
+                    found_vars = True
+                    break
+            except Exception:
+                pass
     assert found_vars is True
 
 
@@ -437,10 +447,9 @@ def test_run_session_audio_modality_variables_all_turns(
 
 
 @patch("cxas_scrapi.core.sessions.time.sleep")
-@patch("cxas_scrapi.core.sessions.ces_v1beta.SessionConfig")
 @patch("cxas_scrapi.core.sessions.json_format.MessageToJson")
 def test_bidi_session_handler_send_inputs_with_historical_contexts(
-    mock_message_to_json, mock_session_config, mock_sleep
+    mock_message_to_json, mock_sleep
 ):
     mock_message_to_json.return_value = '{"mocked": "json"}'
 
@@ -461,12 +470,20 @@ def test_bidi_session_handler_send_inputs_with_historical_contexts(
 
     handler._send_inputs()
 
-    mock_session_config.assert_called_once()
-    kwargs = mock_session_config.call_args[1]
-    assert kwargs["session"] == "session_123"
-    assert kwargs["historical_contexts"] == [
-        {"role": "user", "chunks": [{"text": "hi"}]}
-    ]
+    assert mock_message_to_json.call_count >= 1
+    first_call = mock_message_to_json.call_args_list[0]
+    args = first_call.args
+    assert len(args) > 0
+    msg_pb = args[0]
+    msg_dict = json_format.MessageToDict(msg_pb)
+
+    config = msg_dict.get("config", {})
+    assert config.get("session") == "session_123"
+    assert "historicalContexts" in config
+    hc = config["historicalContexts"]
+    assert len(hc) == 1
+    assert hc[0].get("role") == "user"
+    assert hc[0].get("chunks")[0].get("text") == "hi"
 
     assert handler.ws_app.send.call_count > 0
     # First send should be the mocked JSON
@@ -492,10 +509,9 @@ def test_run_session_use_tool_fakes(mock_client_cls, mock_run_session_request):
 
 
 @patch("cxas_scrapi.core.sessions.time.sleep")
-@patch("cxas_scrapi.core.sessions.ces_v1beta.SessionConfig")
 @patch("cxas_scrapi.core.sessions.json_format.MessageToJson")
 def test_bidi_session_handler_send_inputs_use_tool_fakes(
-    mock_message_to_json, mock_session_config, mock_sleep
+    mock_message_to_json, mock_sleep
 ):
     """Test BidiSessionHandler sends use_tool_fakes in config."""
     mock_message_to_json.return_value = "{}"
@@ -509,9 +525,15 @@ def test_bidi_session_handler_send_inputs_use_tool_fakes(
 
     handler._send_inputs()
 
-    mock_session_config.assert_called_once()
-    kwargs = mock_session_config.call_args[1]
-    assert kwargs["use_tool_fakes"] is True
+    assert mock_message_to_json.call_count >= 1
+    first_call = mock_message_to_json.call_args_list[0]
+    args = first_call.args
+    assert len(args) > 0
+    msg_pb = args[0]
+    msg_dict = json_format.MessageToDict(msg_pb)
+
+    config = msg_dict.get("config", {})
+    assert config.get("useToolFakes") is True
 
 
 @patch("cxas_scrapi.core.sessions.requests.get")

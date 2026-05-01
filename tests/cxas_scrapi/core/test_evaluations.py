@@ -336,8 +336,7 @@ def test_update_evaluation_expectation(mock_client_cls):
     mock_client = mock_client_cls.return_value
 
     evals_client = Evaluations(app_name="projects/p/locations/l/apps/a")
-    mock_exp = MagicMock()
-
+    mock_exp = types.EvaluationExpectation(display_name="Exp 1")
     evals_client.update_evaluation_expectation(mock_exp)
 
     mock_client.update_evaluation_expectation.assert_called_once()

@@ -28,7 +28,6 @@ import certifi
 import requests
 import websocket
 from google.auth.transport.requests import Request
-from google.cloud import ces_v1beta
 from google.cloud.ces_v1beta import SessionServiceClient, types
 from google.protobuf import json_format
 
@@ -130,8 +129,8 @@ class BidiSessionHandler:
     def _send_silence(self, num_chunks: int):
         silence_chunk = b"\x00" * AUDIO_CHUNK_SIZE
         for _ in range(num_chunks):
-            query_message = ces_v1beta.BidiSessionClientMessage(
-                realtime_input=ces_v1beta.SessionInput(audio=silence_chunk)
+            query_message = types.BidiSessionClientMessage(
+                realtime_input=types.SessionInput(audio=silence_chunk)
             )
             query_json = json_format.MessageToJson(
                 query_message._pb,
@@ -161,8 +160,8 @@ class BidiSessionHandler:
             if i == 0 and variables:
                 input_args["variables"] = variables
 
-            query_message = ces_v1beta.BidiSessionClientMessage(
-                realtime_input=ces_v1beta.SessionInput(**input_args)
+            query_message = types.BidiSessionClientMessage(
+                realtime_input=types.SessionInput(**input_args)
             )
             query_json = json_format.MessageToJson(
                 query_message._pb,
@@ -190,8 +189,8 @@ class BidiSessionHandler:
     def _send_inputs(self):
         try:
             logging.debug("Config dict: %s", self.config)
-            config_message = ces_v1beta.BidiSessionClientMessage(
-                config=ces_v1beta.SessionConfig(
+            config_message = types.BidiSessionClientMessage(
+                config=types.SessionConfig(
                     session=self.config["session"],
                     input_audio_config=self.config.get("input_audio_config"),
                     output_audio_config=self.config.get("output_audio_config"),
@@ -219,15 +218,15 @@ class BidiSessionHandler:
 
                 # Handle non-audio structured inputs (event, text, variables)
                 try:
-                    session_input_pb = ces_v1beta.SessionInput()._pb
+                    session_input_pb = types.SessionInput()._pb
                     json_format.ParseDict(
                         input_item,
                         session_input_pb,
                         ignore_unknown_fields=False,
                     )
-                    session_input = ces_v1beta.SessionInput(session_input_pb)
+                    session_input = types.SessionInput(session_input_pb)
 
-                    query_message = ces_v1beta.BidiSessionClientMessage(
+                    query_message = types.BidiSessionClientMessage(
                         realtime_input=session_input
                     )
                     query_json = json_format.MessageToJson(
@@ -271,13 +270,13 @@ class BidiSessionHandler:
         logging.debug("===============")
         logging.debug("Received message: %s...", message[:100])
         try:
-            response_pb = ces_v1beta.BidiSessionServerMessage()._pb
+            response_pb = types.BidiSessionServerMessage()._pb
             json_format.Parse(
                 message,
                 response_pb,
                 ignore_unknown_fields=True,
             )
-            response = ces_v1beta.BidiSessionServerMessage(response_pb)
+            response = types.BidiSessionServerMessage(response_pb)
 
             if response.session_output:
                 self.outputs.append(response.session_output)
@@ -328,7 +327,7 @@ class BidiSessionHandler:
         logging.debug("Waiting for session to complete...")
         wst.join()
 
-        return ces_v1beta.RunSessionResponse(outputs=self.outputs)
+        return types.RunSessionResponse(outputs=self.outputs)
 
 
 class Sessions(Common):
@@ -336,7 +335,6 @@ class Sessions(Common):
         self,
         app_name: str,
         deployment_id: str = None,
-        version_id: str = None,
         **kwargs,
     ):
         """Initializes the Sessions client."""
@@ -351,7 +349,6 @@ class Sessions(Common):
 
         self.app_name = app_name
         self.deployment_id = deployment_id
-        self.version_id = version_id
 
     def _check_audio_requirements(self):
         """Checks if the necessary APIs are enabled and user has permissions."""
@@ -756,7 +753,6 @@ class Sessions(Common):
         input_audio_config: Optional[Dict[str, Any]] = None,
         output_audio_config: Optional[Dict[str, Any]] = None,
         deployment_id: Optional[str] = None,
-        version_id: Optional[str] = None,
         historical_contexts: Optional[List[Dict[str, Any]] | str] = None,
         turn_count: Optional[int] = None,
         modality: Modality | str = Modality.TEXT,
@@ -788,8 +784,7 @@ class Sessions(Common):
                 (defaults to 16kHz linear PCM).
             deployment_id: Overrides the default deployment ID setting for this
                 turn run.
-            version_id: Overrides the default app version setting for this turn
-                run.
+
             historical_contexts: An existing conversation ID (string) or raw
                 list of dictionaries to pre-set past history.
             turn_count: Truncates historical context limits when pulling from a
@@ -817,15 +812,15 @@ class Sessions(Common):
             self._check_audio_requirements()
             config["input_audio_config"] = (
                 input_audio_config
-                or ces_v1beta.InputAudioConfig(
-                    audio_encoding=ces_v1beta.AudioEncoding.LINEAR16,
+                or types.InputAudioConfig(
+                    audio_encoding=types.AudioEncoding.LINEAR16,
                     sample_rate_hertz=SAMPLE_RATE,
                 )
             )
             config["output_audio_config"] = (
                 output_audio_config
-                or ces_v1beta.OutputAudioConfig(
-                    audio_encoding=ces_v1beta.AudioEncoding.LINEAR16,
+                or types.OutputAudioConfig(
+                    audio_encoding=types.AudioEncoding.LINEAR16,
                     sample_rate_hertz=SAMPLE_RATE,
                 )
             )
@@ -836,10 +831,7 @@ class Sessions(Common):
                 f"{self.app_name}/deployments/"
                 f"{deployment_id or self.deployment_id}"
             )
-        if version_id or self.version_id:
-            config["app_version"] = (
-                f"{self.app_name}/app_versions/{version_id or self.version_id}"
-            )
+        # app_version is not supported in SessionConfig, only deployment is.
 
         if historical_contexts:
             parsed_contexts = []
@@ -904,10 +896,9 @@ class Sessions(Common):
             inputs.append({"dtmf": dtmf})
 
         if event is not None:
-            event_payload = {"event": event}
             if event_vars:
-                event_payload["variables"] = event_vars
-            inputs.append({"event": event_payload})
+                inputs.append({"variables": event_vars})
+            inputs.append({"event": {"event": event}})
 
         # Wrap blob input correctly
         if blob is not None:
@@ -1004,7 +995,7 @@ class Sessions(Common):
         self, unique_id: str, event_name: str, event_vars: Dict[str, Any]
     ):
         config = {"session": f"{self.app_name}/sessions/{unique_id}"}
-        inputs = [{"event": {"event": event_name, "variables": event_vars}}]
+        inputs = [{"variables": event_vars}, {"event": {"event": event_name}}]
 
         request = types.RunSessionRequest(config=config, inputs=inputs)
 

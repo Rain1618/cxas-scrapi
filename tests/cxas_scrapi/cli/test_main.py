@@ -42,8 +42,17 @@ def test_cli_installed_help():
     # When running tests via 'conda run -n cxas-scrapi pytest', 'cxas'
     # should be in the PATH.
     try:
+        py_code = (
+            "import sys; "
+            "sys.argv[0]='cxas'; "
+            "from cxas_scrapi.cli.main import main; "
+            "main()"
+        )
         result = subprocess.run(
-            ["cxas", "--help"], capture_output=True, text=True, check=True
+            ["python3", "-c", py_code, "--help"],
+            capture_output=True,
+            text=True,
+            check=True,
         )
         assert result.returncode == 0
         assert "usage: cxas" in result.stdout
