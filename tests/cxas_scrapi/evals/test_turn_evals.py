@@ -402,3 +402,53 @@ def test_topological_sort_circular_dependency(mock_turn_evals):
 
     with pytest.raises(ValueError, match="Circular dependency detected"):
         mock_turn_evals._topological_sort(cases)
+
+def test_run_turn_tests_with_event(mock_turn_evals):
+    mock_turn_evals.sessions_client.run.return_value = MagicMock()
+
+    cases = [
+        TurnTestCase(
+            name="t_event",
+            user="<event>welcome</event>",
+            expectations=[],
+        )
+    ]
+
+    mock_turn_evals.run_turn_tests(cases)
+
+    assert mock_turn_evals.sessions_client.run.call_count == 1
+    args, kwargs = mock_turn_evals.sessions_client.run.call_args
+    assert kwargs["text"] is None
+    assert kwargs["event"] == "welcome"
+
+
+def test_run_turn_tests_multi_turn_with_event(mock_turn_evals):
+    mock_turn_evals.sessions_client.run.return_value = MagicMock()
+
+    cases = [
+        TurnTestCase(
+            name="t_multi_event",
+            turns=[
+                TurnStep(
+                    turn="1",
+                    user="<event>welcome</event>",
+                    expectations=[],
+                ),
+                TurnStep(turn="2", user="regular text", expectations=[]),
+            ],
+        )
+    ]
+
+    mock_turn_evals.run_turn_tests(cases)
+
+    assert mock_turn_evals.sessions_client.run.call_count == 2
+
+    # Check first call (event)
+    args, kwargs = mock_turn_evals.sessions_client.run.call_args_list[0]
+    assert kwargs["text"] is None
+    assert kwargs["event"] == "welcome"
+
+    # Check second call (text)
+    args, kwargs = mock_turn_evals.sessions_client.run.call_args_list[1]
+    assert kwargs["text"] == "regular text"
+    assert kwargs["event"] is None

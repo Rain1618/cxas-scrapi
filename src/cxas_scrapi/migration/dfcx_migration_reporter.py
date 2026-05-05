@@ -14,7 +14,7 @@
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List
 
 from cxas_scrapi.migration.prompts import Prompts
@@ -178,7 +178,7 @@ migration process,
             )
 
     def generate_markdown(self) -> str:
-        timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
         md = [
             "# Polysynth Migration Audit Report",
             f"**Generated:** `{timestamp}`\n",
