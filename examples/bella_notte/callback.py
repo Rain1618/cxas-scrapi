@@ -587,15 +587,22 @@ def _run_slot_filling(
       "pending": dict(pending),
   }
 
-  # ── Detect fresh setter turn (pending just appeared) ──────────
-  # When a setter tool just created pending values (last turn had
-  # none, this turn has some), hide confirm_pending/reject_pending
-  # so the LLM is forced to read back the values and wait for
-  # explicit user confirmation. Without this, the LLM sometimes
-  # calls reject_pending → setter → confirm_pending all in one
-  # turn, skipping the readback step.
+  # ── Detect fresh setter turn ──────────────────────────────────
+  # True when any new key appeared in pending this invocation. Hides
+  # confirm_pending/reject_pending so the LLM must read back the
+  # values and wait for explicit user confirmation before proceeding.
+  # Without this, the LLM sometimes calls reject_pending → setter →
+  # confirm_pending all in one turn, skipping the readback step.
+  #
+  # Uses set-difference (not empty→non-empty) so it also fires when
+  # a new slot is added mid-readback (e.g. user adds a special
+  # request while confirming name/date/party). In that case pending
+  # was already non-empty, so the old bool(pending) and not
+  # bool(last_pending) check would have been False, causing the
+  # callback to suppress the readback message and the LLM to just
+  # acknowledge the new info instead of issuing a fresh readback.
   last_pending = last_state.get("pending", {})
-  fresh_pending = bool(pending) and not bool(last_pending)
+  fresh_pending = bool(set(pending) - set(last_pending))
 
   # ── Phase snapshot ────────────────────────────────────────────
   if pending:
