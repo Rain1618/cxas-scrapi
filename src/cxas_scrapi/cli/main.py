@@ -444,7 +444,6 @@ def run_eval(args: argparse.Namespace) -> None:  # noqa: C901
 
                 print("\nFINAL RESULT: FAIL")
                 sys.exit(1)
-
     except Exception as e:
         print(f"Failed to run evaluation: {e}")
         sys.exit(1)
@@ -783,6 +782,137 @@ def run_session(args: argparse.Namespace) -> None:
             session_client.parse_result(res)
     except Exception as e:
         print(f"Failed to run session: {e}")
+        sys.exit(1)
+
+
+
+
+
+def conversations_list(args: argparse.Namespace) -> None:
+    """Lists conversations for an app."""
+    print(f"Listing conversations for App: {args.app_name}")
+    from google.auth.transport.requests import AuthorizedSession
+    import json
+    
+    # Extract project_id and location from app_name
+    parts = args.app_name.split("/")
+    project_id = parts[1]
+    location = parts[3]
+    
+    apps_client = Apps(project_id=project_id, location=location)
+    session = AuthorizedSession(apps_client.creds)
+    
+    url = f"https://ces.googleapis.com/v1/{args.app_name}/conversations"
+    response = session.get(url)
+    response.raise_for_status()
+    data = response.json()
+    print(json.dumps(data.get("conversations", []), indent=2))
+
+
+def conversations_get(args: argparse.Namespace) -> None:
+    """Gets details of a specific conversation."""
+    print(f"Getting conversation: {args.conversation_resource_name}")
+    from google.auth.transport.requests import AuthorizedSession
+    import json
+    
+    # Extract project_id and location from conversation_resource_name
+    parts = args.conversation_resource_name.split("/")
+    project_id = parts[1]
+    location = parts[3]
+    
+    apps_client = Apps(project_id=project_id, location=location)
+    session = AuthorizedSession(apps_client.creds)
+    
+    url = f"https://ces.googleapis.com/v1/{args.conversation_resource_name}"
+    response = session.get(url)
+    response.raise_for_status()
+    print(json.dumps(response.json(), indent=2))
+
+
+def deployments_list(args: argparse.Namespace) -> None:
+    """Lists deployments for an app."""
+    print(f"Listing deployments for App: {args.app_name}")
+    from cxas_scrapi.core.deployments import Deployments
+    import json
+    
+    deployments_client = Deployments(app_name=args.app_name)
+    deployments = deployments_client.list_deployments()
+    
+    try:
+        from google.protobuf.json_format import MessageToDict
+        deployments_dict = [MessageToDict(d) for d in deployments]
+        print(json.dumps(deployments_dict, indent=2))
+    except Exception:
+        # Fallback to string representation if serialization fails
+        print([str(d) for d in deployments])
+
+
+def deployments_create(args: argparse.Namespace) -> None:
+    """Creates a deployment."""
+    print(f"Creating deployment {args.deployment_id} for App: {args.app_name}")
+    from cxas_scrapi.core.deployments import Deployments
+    
+    deployments_client = Deployments(app_name=args.app_name)
+    deployment = deployments_client.create_deployment(
+        deployment_id=args.deployment_id,
+        display_name=args.deployment_id,
+        app_version=args.version_id
+    )
+    print(f"Deployment created successfully: {deployment.name}")
+
+
+def deployments_promote(args: argparse.Namespace) -> None:
+    """Promotes app to live traffic."""
+    print(f"Promoting app {args.app_resource_name} to live traffic...")
+
+
+    # Step 1: Push and create version
+    push_args = argparse.Namespace(
+        app_dir=args.app_dir,
+        to=args.app_resource_name,
+        app_name=None,
+        display_name=None,
+        env_file=None,
+        project_id=None,
+        location=None,
+        create_version=True,
+        version_description=f"Promote {time.strftime('%Y%m%d%H%M%S')}",
+    )
+    
+    try:
+        print("Calling app_push directly...")
+        app_name = app_push(push_args)
+        if not app_name:
+            print("Error: Push failed during promotion.")
+            sys.exit(1)
+            
+        version_id = getattr(push_args, "created_version_name", None)
+        if not version_id:
+            print("Error: Could not get created version ID.")
+            sys.exit(1)
+            
+        # Step 2: Update deployment
+        deployment_id = args.live_deployment_resource_name.split("/deployments/")[-1]
+        
+        from google.api_core.exceptions import NotFound
+        from cxas_scrapi.core.deployments import Deployments
+        deployments_client = Deployments(app_name=args.app_resource_name)
+        
+        try:
+            deployments_client.get_deployment(deployment_id=deployment_id)
+        except NotFound:
+            print(f"Error: Deployment '{deployment_id}' does not exist.")
+            print("`deployments promote` requires promoting an existing deployment.")
+            print("Please create the deployment first using `deployments create`.")
+            sys.exit(1)
+            
+        print(f"Updating deployment {deployment_id} with version {version_id}...")
+        deployments_client.update_deployment(deployment_id=deployment_id, app_version=version_id)
+        
+        print("Successfully promoted agent to live traffic.")
+        
+    except Exception as e:
+        print(f"Error during promotion: {e}")
         sys.exit(1)
 
 
@@ -1194,6 +1324,7 @@ def get_parser() -> argparse.ArgumentParser:
         ),
     )
 
+
     parser_run.set_defaults(func=run_eval)
 
     # Parser for 'run-session'
@@ -1322,6 +1453,15 @@ def get_parser() -> argparse.ArgumentParser:
         help="Display name for a new App if --to is not provided.",
     )
     _add_project_location_args(parser_push, required=False)
+    parser_push.add_argument(
+        "--create-version",
+        action="store_true",
+        help="Create a version after successful push.",
+    )
+    parser_push.add_argument(
+        "--version-description",
+        help="Description for the created version.",
+    )
     parser_push.set_defaults(func=app_push)
 
     # Parser for 'lint'
@@ -1462,6 +1602,95 @@ def get_parser() -> argparse.ArgumentParser:
     )
     _add_project_location_args(parser_apps_get, required=False)
     parser_apps_get.set_defaults(func=apps_get)
+
+    # Subparsers for 'conversations'
+    parser_convs = subparsers.add_parser(
+        "conversations", help="Manage conversations (list, get)."
+    )
+    convs_subparsers = parser_convs.add_subparsers(
+        title="Conversations Commands",
+        dest="conversations_command",
+        required=True,
+    )
+
+    parser_convs_list = convs_subparsers.add_parser(
+        "list", help="List conversations for an app."
+    )
+    parser_convs_list.add_argument(
+        "--app-name",
+        required=True,
+        help="The CXAS App ID (projects/.../locations/.../apps/...).",
+    )
+    parser_convs_list.set_defaults(func=conversations_list)
+
+    parser_convs_get = convs_subparsers.add_parser(
+        "get", help="Get conversation details."
+    )
+    parser_convs_get.add_argument(
+        "conversation_resource_name",
+        help="The conversation resource name.",
+    )
+    parser_convs_get.set_defaults(func=conversations_get)
+
+    # Subparsers for 'deployments'
+    parser_deps = subparsers.add_parser(
+        "deployments", help="Manage deployments (list, create, promote)."
+    )
+    deps_subparsers = parser_deps.add_subparsers(
+        title="Deployments Commands",
+        dest="deployments_command",
+        required=True,
+    )
+
+    parser_deps_list = deps_subparsers.add_parser(
+        "list", help="List deployments for an app."
+    )
+    parser_deps_list.add_argument(
+        "--app-name",
+        required=True,
+        help="The CXAS App ID (projects/.../locations/.../apps/...).",
+    )
+    parser_deps_list.set_defaults(func=deployments_list)
+
+    parser_deps_create = deps_subparsers.add_parser(
+        "create", help="Create a deployment."
+    )
+    parser_deps_create.add_argument(
+        "--app-name",
+        required=True,
+        help="The CXAS App ID (projects/.../locations/.../apps/...).",
+    )
+    parser_deps_create.add_argument(
+        "--deployment-id",
+        required=True,
+        help="Deployment ID for create_deployment.",
+    )
+    parser_deps_create.add_argument(
+        "--version-id",
+        required=True,
+        help="Version ID for create_deployment.",
+    )
+    parser_deps_create.set_defaults(func=deployments_create)
+
+    parser_deps_promote = deps_subparsers.add_parser(
+        "promote", help="Promote app to live traffic."
+    )
+    parser_deps_promote.add_argument(
+        "--app-resource-name",
+        required=True,
+        help="Fully qualified CXAS app resource name.",
+    )
+    parser_deps_promote.add_argument(
+        "--app-dir",
+        required=True,
+        help="Path to the CXAS app directory.",
+    )
+    parser_deps_promote.add_argument(
+        "--live-deployment-resource-name",
+        required=True,
+        help="Fully qualified live deployment resource name.",
+    )
+    parser_deps_promote.set_defaults(func=deployments_promote)
 
     # Subparsers for 'local'
     parser_local = subparsers.add_parser(
