@@ -461,7 +461,7 @@ def combined_evals_report_cmd(args: argparse.Namespace) -> None:
         generate_combined_report_from_dir,
     )
 
-    output_path = args.output or os.path.join(
+    output_path = args.gcs_path or args.output or os.path.join(
         args.output_dir, "combined_report.html"
     )
 
@@ -994,6 +994,10 @@ def get_parser() -> argparse.ArgumentParser:
         "--simulation-dir",
         default="evals/simulations/",
         help="Path to simulation files directory.",
+    )
+    parser_report.add_argument(
+        "--gcs-path",
+        help="Optional: GCS path to store the combined report (starts with gs://).",
     )
     parser_report.add_argument(
         "--format",

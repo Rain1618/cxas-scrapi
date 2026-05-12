@@ -38,6 +38,7 @@ def test_combined_evals_report_cmd(tmp_path):
         def __init__(self):
             self.output_dir = str(evals_dir)
             self.output = None
+            self.gcs_path = None
             self.golden_run = None
             self.app_name = None
             self.run = False
@@ -83,6 +84,7 @@ def test_combined_evals_report_cmd_with_modality_and_runs(tmp_path):
         def __init__(self):
             self.output_dir = str(evals_dir)
             self.output = None
+            self.gcs_path = None
             self.golden_run = None
             self.app_name = None
             self.run = False

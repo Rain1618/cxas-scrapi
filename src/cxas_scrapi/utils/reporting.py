@@ -958,8 +958,19 @@ def generate_combined_html_report(
     )
 
     if output_path:
-        with open(output_path, "w") as f:
-            f.write(html)
+        if output_path.startswith("gs://"):
+            mtls_url = _upload_to_gcs(output_path, html)
+            if not mtls_url:
+                # Fallback to local file if upload failed
+                filename = output_path.rsplit("/", maxsplit=1)[-1]
+                if not filename.endswith(".html"):
+                    filename = "report_fallback.html"
+                output_path = filename
+                with open(output_path, "w") as f:
+                    f.write(html)
+        else:
+            with open(output_path, "w") as f:
+                f.write(html)
 
     return html
 
@@ -1478,7 +1489,7 @@ def run_all_evals(
                     run_name = meta.evaluation_run
                     print(f"  Run name resolved: {run_name}")
                     break
-                print(f"  Waiting... ({(i+1)*10}s)")
+                print(f"  Waiting... ({(i + 1) * 10}s)")
 
     # 1. Callback tests
     if not app_dir and app_name:
