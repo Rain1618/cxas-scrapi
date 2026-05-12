@@ -54,8 +54,7 @@ class Agents(Apps):
         self.app_name = app_name
         self.resource_type = "agents"
         self.client = AgentServiceClient(
-            credentials=self.creds,
-            client_options=self.client_options,
+            transport=self.get_grpc_transport(AgentServiceClient),
             client_info=self.client_info,
         )
 
@@ -172,6 +171,7 @@ class Agents(Apps):
                 "Authorization": f"Bearer {self.creds.token}",
                 "Content-Type": "application/json",
                 "x-goog-user-project": self.project_id or "",  # Best effort
+                "User-Agent": self.user_agent,
             }
 
             response = requests.post(url, headers=headers, json=agent_data)

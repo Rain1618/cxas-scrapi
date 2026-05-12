@@ -34,7 +34,7 @@ def main():
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
         
-    tools_client = Tools(app_name)
+    tools_client = Tools(app_name, user_agent_extension="skill/cxas-sim-eval/fetch_tool_schemas")
     print(f"Fetching tools map for app: {app_name}")
     
     # Get mapping of tool_name -> tool_display_name

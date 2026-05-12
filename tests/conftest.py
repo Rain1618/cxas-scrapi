@@ -79,8 +79,28 @@ def app_id():
 # running online
 if "--run-online" not in sys.argv:
     mock_ces = MagicMock()
-    mock_ces.AgentServiceClient = MagicMock
-    mock_ces.EvaluationServiceClient = MagicMock
+
+    def enforce_transport(*args, **kwargs):
+        if "transport" not in kwargs:
+            raise ValueError(
+                "Client must be initialized with a transport from "
+                "get_grpc_transport to ensure correct telemetry."
+            )
+        return MagicMock()
+
+    mock_ces.AgentServiceClient = MagicMock(side_effect=enforce_transport)
+    mock_ces.AgentServiceClient.get_transport_class.return_value = MagicMock()
+
+    mock_ces.EvaluationServiceClient = MagicMock(side_effect=enforce_transport)
+    mock_ces.EvaluationServiceClient.get_transport_class.return_value = (
+        MagicMock()
+    )
+
+    mock_ces.SessionServiceClient = MagicMock(side_effect=enforce_transport)
+    mock_ces.SessionServiceClient.get_transport_class.return_value = MagicMock()
+
+    mock_ces.ToolServiceClient = MagicMock(side_effect=enforce_transport)
+    mock_ces.ToolServiceClient.get_transport_class.return_value = MagicMock()
     mock_ces.types = real_ces.types
     sys.modules["google.cloud.ces_v1beta"] = mock_ces
 

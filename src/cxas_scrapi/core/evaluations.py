@@ -58,8 +58,7 @@ class Evaluations(Common):
 
         # Initialize SDK Client
         self.client = EvaluationServiceClient(
-            credentials=self.creds,
-            client_options=self.client_options,
+            transport=self.get_grpc_transport(EvaluationServiceClient),
             client_info=self.client_info,
         )
         self.resource_type = "evaluations"

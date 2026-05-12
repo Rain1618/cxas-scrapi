@@ -44,7 +44,7 @@ def inspect(app_name, verbose=False):
     location = parts[3]
 
     # App
-    apps = Apps(project_id=project, location=location)
+    apps = Apps(project_id=project, location=location, user_agent_extension="skill/cxas-agent-foundry/inspect-app")
     try:
         app = apps.get_app(app_name=app_name)
     except Exception as e:
@@ -73,14 +73,14 @@ def inspect(app_name, verbose=False):
         }
 
     # Agents
-    agents_client = Agents(app_name=app_name)
+    agents_client = Agents(app_name=app_name, user_agent_extension="skill/cxas-agent-foundry/inspect-app")
     try:
         agent_list = agents_client.list_agents()
     except Exception as e:
         print(f"Error: Failed to list agents: {e}")
         agent_list = []
 
-    callbacks_client = Callbacks(app_name=app_name)
+    callbacks_client = Callbacks(app_name=app_name, user_agent_extension="skill/cxas-agent-foundry/inspect-app")
 
     for agent in agent_list:
         agent_info = {
@@ -118,7 +118,7 @@ def inspect(app_name, verbose=False):
         result["agents"].append(agent_info)
 
     # Tools
-    tools_client = Tools(app_name=app_name)
+    tools_client = Tools(app_name=app_name, user_agent_extension="skill/cxas-agent-foundry/inspect-app")
     try:
         tools_map = tools_client.get_tools_map()
         for display_name, tool in tools_map.items():
@@ -132,7 +132,7 @@ def inspect(app_name, verbose=False):
         result["tools_error"] = str(e)
 
     # Existing evals
-    evals_client = Evaluations(app_name=app_name)
+    evals_client = Evaluations(app_name=app_name, user_agent_extension="skill/cxas-agent-foundry/inspect-app")
     try:
         evals_list = evals_client.list_evaluations()
         for ev in evals_list:

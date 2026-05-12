@@ -1014,7 +1014,7 @@ def main():
     app_name = load_app_name()
 
     from cxas_scrapi.core.evaluations import Evaluations
-    client = Evaluations(app_name=app_name)
+    client = Evaluations(app_name=app_name, user_agent_extension="skill/cxas-agent-foundry/triage-results")
 
     # Build eval name lookup (resource -> display_name)
     try:

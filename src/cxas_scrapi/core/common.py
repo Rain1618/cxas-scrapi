@@ -44,6 +44,7 @@ class Common:
         creds: Any = None,
         scope: List[str] = None,
         app_name: str = None,  # Optional: used to determine client_options
+        user_agent_extension: str = None,
     ):
         self.scopes = GLOBAL_SCOPES
         if scope:
@@ -100,7 +101,11 @@ class Common:
         except importlib.metadata.PackageNotFoundError:
             sdk_version = "unknown"
 
-        self.client_info = ClientInfo(user_agent=f"cxas-scrapi/{sdk_version}")
+        self.user_agent = f"cxas-scrapi/{sdk_version}"
+        if user_agent_extension:
+            self.user_agent += f":{user_agent_extension}"
+
+        self.client_info = ClientInfo(user_agent=self.user_agent)
 
     @staticmethod
     def empty_to_dict(v: Any) -> Any:
@@ -327,6 +332,23 @@ class Common:
             ):
                 agent_texts.append(output["text"])
         return separator.join(agent_texts)
+
+    def get_grpc_transport(self, client_class: type):
+        """Creates a customer gRPC transport for CXAS SCRAPI calls."""
+        transport_class = client_class.get_transport_class("grpc")
+
+        host = "ces.googleapis.com"
+        client_opts = getattr(self, "client_options", None)
+        if client_opts and "api_endpoint" in client_opts:
+            host = self.client_options["api_endpoint"]
+
+        channel = transport_class.create_channel(
+            host=host,
+            credentials=self.creds,
+            options=[("grpc.primary_user_agent", self.user_agent)]
+        )
+
+        return transport_class(channel=channel)
 
     def recurse_proto_repeated_composite(self, repeated_object):
         """Recursively converts RepeatedComposite objects to lists."""

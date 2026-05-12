@@ -117,11 +117,13 @@ class BidiSessionHandler:
         token: str,
         config: Dict[str, Any],
         inputs: List[Dict[str, Any]],
+        user_agent: str = None,
     ):
         self.uri = BIDI_SESSION_URI + location
         self.token = token
         self.config = config
         self.inputs = inputs
+        self.user_agent = user_agent
         self.agent_turn_manager = AgentTurnManager()
         self.ws_app = None
         self.outputs = []
@@ -310,7 +312,10 @@ class BidiSessionHandler:
         logging.debug("Connecting to WebSocket: %s", self.uri)
         self.ws_app = websocket.WebSocketApp(
             self.uri,
-            header={"Authorization": f"Bearer {self.token}"},
+            header={
+                "Authorization": f"Bearer {self.token}",
+                "User-Agent": self.user_agent,
+            },
             on_open=self._on_open,
             on_message=self._on_message,
             on_error=self._on_error,
@@ -342,8 +347,7 @@ class Sessions(Common):
 
         # Initialize Sessions Client
         self.client = SessionServiceClient(
-            credentials=self.creds,
-            client_options=self.client_options,
+            transport=self.get_grpc_transport(SessionServiceClient),
             client_info=self.client_info,
         )
 
@@ -730,7 +734,13 @@ class Sessions(Common):
     def async_bidi_run_session(
         self, config: dict, inputs: list[dict[str, Any]]
     ):
-        handler = BidiSessionHandler(self.location, self.token, config, inputs)
+        handler = BidiSessionHandler(
+            self.location,
+            self.token,
+            config,
+            inputs,
+            user_agent=self.user_agent,
+        )
         return handler.run()
 
     def make_text_request(self, config: dict, inputs: list[dict[str, Any]]):

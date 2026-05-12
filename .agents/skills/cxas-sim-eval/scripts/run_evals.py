@@ -84,7 +84,7 @@ def run_single_eval(item, evals_dir, app_name, run_index, skip_analysis=False, m
             test_case = json.load(f)
 
         # Initialize the Simulator per test case
-        sim_evals = SimulationEvals(app_name)
+        sim_evals = SimulationEvals(app_name, user_agent_extension="skill/cxas-sim-eval/run_evals")
         eval_conv = sim_evals.simulate_conversation(
             test_case=test_case, console_logging=True, session_id=session_id, modality=modality
         )

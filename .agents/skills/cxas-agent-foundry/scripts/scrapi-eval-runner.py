@@ -67,7 +67,7 @@ def get_app_name():
 
 
 def get_evals_client():
-    return Evaluations(app_name=load_app_name())
+    return Evaluations(app_name=load_app_name(), user_agent_extension="skill/cxas-agent-foundry/scrapi-eval-runner")
 
 
 def get_eval_utils():

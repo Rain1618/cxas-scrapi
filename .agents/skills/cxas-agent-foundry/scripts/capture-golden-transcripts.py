@@ -116,7 +116,7 @@ def parse_response_deduped(response) -> Dict[str, Any]:
 def capture(name: str, scripts: dict, app_name: str, channel: str = "text"):
     """Capture a single golden transcript."""
     config = scripts[name]
-    sessions = Sessions(app_name)
+    sessions = Sessions(app_name, user_agent_extension="skill/cxas-agent-foundry/capture-golden-transcripts")
     session_id = str(uuid.uuid4())
     params = config["params"]
     user_turns = config["turns"]

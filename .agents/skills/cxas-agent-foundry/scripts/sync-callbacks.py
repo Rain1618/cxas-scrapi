@@ -65,7 +65,7 @@ def sync_agent_callbacks(app_name, agent_name, dry_run=False):
     """Sync callbacks for a single agent. Returns (synced, tests_found, tests_missing)."""
     from cxas_scrapi.core.callbacks import Callbacks
 
-    callbacks_client = Callbacks(app_name=app_name)
+    callbacks_client = Callbacks(app_name=app_name, user_agent_extension="skill/cxas-agent-foundry/sync-callbacks")
     try:
         cb_map = callbacks_client.list_callbacks(agent_name)
     except Exception as e:
@@ -283,7 +283,7 @@ def main():
 
     # List agents
     from cxas_scrapi.core.agents import Agents
-    agents_client = Agents(app_name=app_name)
+    agents_client = Agents(app_name=app_name, user_agent_extension="skill/cxas-agent-foundry/sync-callbacks")
     try:
         agent_list = agents_client.list_agents()
     except Exception as e:

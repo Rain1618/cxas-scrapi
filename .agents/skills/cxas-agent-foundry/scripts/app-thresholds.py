@@ -40,7 +40,7 @@ EXTRA_TOOL_VALUES = {"allow": 1, "deny": 2}
 def get_app(project, location):
     """Get the Apps client."""
     from cxas_scrapi.core.apps import Apps
-    return Apps(project_id=project, location=location)
+    return Apps(project_id=project, location=location, user_agent_extension="skill/cxas-agent-foundry/app-thresholds")
 
 
 def cmd_show(args):
@@ -49,7 +49,7 @@ def cmd_show(args):
 
     from cxas_scrapi.core.evaluations import Evaluations
     try:
-        client = Evaluations(app_name=app_name)
+        client = Evaluations(app_name=app_name, user_agent_extension="skill/cxas-agent-foundry/app-thresholds")
         client.get_evaluation_thresholds(print_console=True)
     except Exception as e:
         print(f"Error: Failed to get thresholds: {e}")

@@ -43,8 +43,8 @@ def main():
     location = parts[3]
     
     # Initialize clients
-    agents_client = Agents(app_name=app_name)
-    apps_client = Apps(project_id=project_id, location=location)
+    agents_client = Agents(app_name=app_name, user_agent_extension="skill/cxas-sim-eval/fetch_app_data")
+    apps_client = Apps(project_id=project_id, location=location, user_agent_extension="skill/cxas-sim-eval/fetch_app_data")
     
     # 1. Fetch Agent Tools
     print(f"Fetching agent tools for app: {app_name}...")

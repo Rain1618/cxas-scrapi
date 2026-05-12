@@ -45,8 +45,11 @@ class GCSUtils(Common):
         creds=creds,
         scope=scope,
     )
-    self.client = storage.Client(credentials=self.creds,
-                                 project=self.project_id)
+    self.client = storage.Client(
+        credentials=self.creds,
+        project=self.project_id,
+        client_info=self.client_info,
+    )
 
   def upload_string(
       self,

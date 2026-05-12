@@ -375,7 +375,7 @@ def generate_html_report(
     if app_name:
         try:
             from cxas_scrapi.core.tools import Tools
-            tools_map = Tools(app_name=app_name).get_tools_map()
+            tools_map = Tools(app_name=app_name, user_agent_extension="skill/cxas-agent-foundry/scrapi-sim-runner").get_tools_map()
         except Exception:
             pass
 
@@ -621,7 +621,7 @@ def _run_single_eval(app_name, tc, run_idx, runs, model, modality, verbose):
         # Each thread gets its own SimRunner instance (separate session client)
         import time as _time
         _start = _time.time()
-        sim = EnhancedSimRunner(app_name=app_name)
+        sim = EnhancedSimRunner(app_name=app_name, user_agent_extension="skill/cxas-agent-foundry/scrapi-sim-runner")
         conv = sim.simulate_conversation(
             test_case=tc,
             model=model,

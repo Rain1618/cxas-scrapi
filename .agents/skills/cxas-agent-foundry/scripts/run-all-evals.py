@@ -156,7 +156,7 @@ def trigger_goldens(config, channel, runs):
         return None
 
     try:
-        client = Evaluations(app_name=app_name)
+        client = Evaluations(app_name=app_name, user_agent_extension="skill/cxas-agent-foundry/run-all-evals")
         response = client.run_evaluation(
             eval_type="goldens",
             app_name=app_name,
@@ -188,7 +188,7 @@ def _wait_for_run(app_name, run_name, timeout=GOLDEN_TIMEOUT):
     import time
     from cxas_scrapi.core.evaluations import Evaluations
 
-    client = Evaluations(app_name=app_name)
+    client = Evaluations(app_name=app_name, user_agent_extension="skill/cxas-agent-foundry/run-all-evals")
     start = time.time()
     poll_interval = 15
 

@@ -164,9 +164,9 @@ def gate2_agent_hierarchy(app_name) -> GateResult:
     project_id, location = parts[1], parts[3]
 
     try:
-        apps = Apps(project_id=project_id, location=location)
+        apps = Apps(project_id=project_id, location=location, user_agent_extension="skill/cxas-agent-foundry/gate-check")
         app = apps.get_app(app_name)
-        agents_client = Agents(app_name=app_name)
+        agents_client = Agents(app_name=app_name, user_agent_extension="skill/cxas-agent-foundry/gate-check")
         agents_map = agents_client.get_agents_map(reverse=True)
     except Exception as e:
         r.passed = False
@@ -214,11 +214,11 @@ def gate3_tool_associations(app_name) -> GateResult:
     project_id, location = parts[1], parts[3]
 
     try:
-        apps = Apps(project_id=project_id, location=location)
+        apps = Apps(project_id=project_id, location=location, user_agent_extension="skill/cxas-agent-foundry/gate-check")
         app = apps.get_app(app_name)
-        agents_client = Agents(app_name=app_name)
+        agents_client = Agents(app_name=app_name, user_agent_extension="skill/cxas-agent-foundry/gate-check")
         agents_map = agents_client.get_agents_map(reverse=True)
-        tools_client = Tools(app_name=app_name)
+        tools_client = Tools(app_name=app_name, user_agent_extension="skill/cxas-agent-foundry/gate-check")
         tools_map = {t.display_name: t.name for t in tools_client.list_tools()}
     except Exception as e:
         r.passed = False
@@ -276,9 +276,9 @@ def gate4_callback_inventory(app_name) -> GateResult:
     from cxas_scrapi.core.callbacks import Callbacks
 
     try:
-        agents_client = Agents(app_name=app_name)
+        agents_client = Agents(app_name=app_name, user_agent_extension="skill/cxas-agent-foundry/gate-check")
         agents_map = agents_client.get_agents_map(reverse=True)
-        cb_client = Callbacks(app_name=app_name)
+        cb_client = Callbacks(app_name=app_name, user_agent_extension="skill/cxas-agent-foundry/gate-check")
     except Exception as e:
         r.passed = False
         r.error = f"Failed to fetch callbacks: {e}"
@@ -370,7 +370,7 @@ def gate5_single_turn_smoke(app_name) -> GateResult:
     from cxas_scrapi.core.sessions import Sessions
 
     try:
-        sessions = Sessions(app_name=app_name)
+        sessions = Sessions(app_name=app_name, user_agent_extension="skill/cxas-agent-foundry/gate-check")
         session_id = f"gate5-{uuid.uuid4().hex[:8]}"
         print(f"  session_id={session_id}, text='Hello'")
         result = sessions.run(session_id=session_id, text="Hello")
@@ -411,7 +411,7 @@ def gate6_multi_turn_smoke(app_name, prompts_file) -> GateResult:
 
     from cxas_scrapi.core.sessions import Sessions
 
-    sessions = Sessions(app_name=app_name)
+    sessions = Sessions(app_name=app_name, user_agent_extension="skill/cxas-agent-foundry/gate-check")
     session_id = f"gate6-{uuid.uuid4().hex[:8]}"
     turns = []
 

@@ -112,7 +112,7 @@ def fetch_cxas_apps(project_id, location):
     try:
         from cxas_scrapi.core.apps import Apps
 
-        apps_client = Apps(project_id=project_id, location=location)
+        apps_client = Apps(project_id=project_id, location=location, user_agent_extension="skill/cxas-agent-foundry/configure")
         apps_list = apps_client.list_apps()
         results = []
         for app in apps_list:
@@ -247,7 +247,7 @@ def _create_new_app(project_id, location):
     try:
         from cxas_scrapi.core.apps import Apps
 
-        apps_client = Apps(project_id=project_id, location=location)
+        apps_client = Apps(project_id=project_id, location=location, user_agent_extension="skill/cxas-agent-foundry/configure")
         app = apps_client.create_app(
             app_id=app_id_slug,
             display_name=display_name,
@@ -656,7 +656,7 @@ def main_non_interactive(args):
         console.print(f"  [dim]Creating app '{app_name}' in {project_id}/{location}...[/dim]")
         try:
             from cxas_scrapi.core.apps import Apps
-            apps_client = Apps(project_id=project_id, location=location)
+            apps_client = Apps(project_id=project_id, location=location, user_agent_extension="skill/cxas-agent-foundry/configure")
             app = apps_client.create_app(
                 app_id=str(uuid.uuid4()),
                 display_name=app_name,

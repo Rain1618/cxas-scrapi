@@ -59,13 +59,11 @@ class Tools(Apps):
         self.app_id = app_name.rsplit("/", maxsplit=1)[-1]
         self.resource_type = "tools"
         self.client = AgentServiceClient(
-            credentials=self.creds,
-            client_options=self.client_options,
+            transport=self.get_grpc_transport(AgentServiceClient),
             client_info=self.client_info,
         )
         self.tool_client = ToolServiceClient(
-            credentials=self.creds,
-            client_options=self.client_options,
+            transport=self.get_grpc_transport(ToolServiceClient),
             client_info=self.client_info,
         )
         self.var_client = Variables(
@@ -342,6 +340,7 @@ class Tools(Apps):
             "Authorization": f"Bearer {self.creds.token}",
             "Content-Type": "application/json",
             "x-goog-user-project": self.project_id,
+            "User-Agent": self.user_agent,
         }
 
         payload = {}
