@@ -556,6 +556,7 @@ def generate_html_report(
     model: str,
     app_name: str = "",
     wall_clock_s: float = None,
+    user_agent_extension: str = None,
 ):
     """Generate an HTML report and save it locally or upload to GCS.
 
@@ -579,7 +580,9 @@ def generate_html_report(
     tools_map = {}
     if app_name:
         try:
-            tools_map = Tools(app_name=app_name).get_tools_map()
+            tools_map = Tools(
+                app_name=app_name, user_agent_extension=user_agent_extension
+            ).get_tools_map()
         except Exception:
             pass
 
@@ -650,6 +653,7 @@ def generate_combined_html_report(
     golden_modality="text",
     sim_modality="text",
     sim_wall_clock_s=None,
+    user_agent_extension=None,
 ):
     """Generate combined HTML report based on results from multiple sources."""
     ts = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -877,7 +881,9 @@ def generate_combined_html_report(
     tools_map = {}
     if app_name:
         try:
-            tools_map = Tools(app_name=app_name).get_tools_map()
+            tools_map = Tools(
+                app_name=app_name, user_agent_extension=user_agent_extension
+            ).get_tools_map()
         except Exception:
             pass
 
@@ -981,7 +987,9 @@ def _outcome_str(val):
     return str(val) if val else "?"
 
 
-def load_golden_results(run_id, app_name, include=None):
+def load_golden_results(
+    run_id, app_name, include=None, user_agent_extension=None
+):
     """Fetch golden results and parse into report-friendly format."""
     if include is None:
         include = ["goldens", "scenarios"]
@@ -1003,7 +1011,9 @@ def load_golden_results(run_id, app_name, include=None):
 
     tools_map = {}
     try:
-        tools_map = Tools(app_name=app_name).get_tools_map()
+        tools_map = Tools(
+            app_name=app_name, user_agent_extension=user_agent_extension
+        ).get_tools_map()
     except Exception:
         pass
 
