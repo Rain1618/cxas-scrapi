@@ -16,12 +16,12 @@
 
 import argparse
 import io
-import time
 import logging
 import os
 import shutil
 import sys
 import tempfile
+import time
 import zipfile
 from pathlib import Path
 from typing import Any, Optional
@@ -243,24 +243,29 @@ def _app_push(
         )
 
         if args and getattr(args, "create_version", False) and app_name:
-            from google.auth.transport.requests import AuthorizedSession
-            
+            from google.auth.transport.requests import (  # noqa: PLC0415
+                AuthorizedSession,
+            )
+
             print(f"Creating version for {app_name}...")
             url = f"https://ces.googleapis.com/v1/{app_name}/versions"
             session = AuthorizedSession(apps_client.creds)
-            
+
             display_name = f'import-{time.strftime("%Y%m%d%H%M%S")}'
             payload = {
                 "displayName": display_name,
                 "description": getattr(args, "version_description", None),
             }
-            
+
             response = session.post(url, json=payload)
             response.raise_for_status()
             op_data = response.json()
             version_name = op_data["name"]
-            print(f"Created app version: {version_name} with display name {display_name}")
-            setattr(args, "created_version_name", version_name)
+            print(
+                f"Created app version: {version_name} "
+                f"with display name {display_name}"
+            )
+            args.created_version_name = version_name
 
         return app_name
 

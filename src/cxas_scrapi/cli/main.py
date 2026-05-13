@@ -791,17 +791,20 @@ def run_session(args: argparse.Namespace) -> None:
 def conversations_list(args: argparse.Namespace) -> None:
     """Lists conversations for an app."""
     print(f"Listing conversations for App: {args.app_name}")
-    from google.auth.transport.requests import AuthorizedSession
-    import json
-    
+    import json  # noqa: PLC0415
+
+    from google.auth.transport.requests import (  # noqa: PLC0415
+        AuthorizedSession,
+    )
+
     # Extract project_id and location from app_name
     parts = args.app_name.split("/")
     project_id = parts[1]
     location = parts[3]
-    
+
     apps_client = Apps(project_id=project_id, location=location)
     session = AuthorizedSession(apps_client.creds)
-    
+
     url = f"https://ces.googleapis.com/v1/{args.app_name}/conversations"
     response = session.get(url)
     response.raise_for_status()
@@ -812,17 +815,20 @@ def conversations_list(args: argparse.Namespace) -> None:
 def conversations_get(args: argparse.Namespace) -> None:
     """Gets details of a specific conversation."""
     print(f"Getting conversation: {args.conversation_resource_name}")
-    from google.auth.transport.requests import AuthorizedSession
-    import json
-    
+    import json  # noqa: PLC0415
+
+    from google.auth.transport.requests import (  # noqa: PLC0415
+        AuthorizedSession,
+    )
+
     # Extract project_id and location from conversation_resource_name
     parts = args.conversation_resource_name.split("/")
     project_id = parts[1]
     location = parts[3]
-    
+
     apps_client = Apps(project_id=project_id, location=location)
     session = AuthorizedSession(apps_client.creds)
-    
+
     url = f"https://ces.googleapis.com/v1/{args.conversation_resource_name}"
     response = session.get(url)
     response.raise_for_status()
@@ -832,14 +838,15 @@ def conversations_get(args: argparse.Namespace) -> None:
 def deployments_list(args: argparse.Namespace) -> None:
     """Lists deployments for an app."""
     print(f"Listing deployments for App: {args.app_name}")
-    from cxas_scrapi.core.deployments import Deployments
-    import json
-    
+    import json  # noqa: PLC0415
+
+    from cxas_scrapi.core.deployments import Deployments  # noqa: PLC0415
+
     deployments_client = Deployments(app_name=args.app_name)
     deployments = deployments_client.list_deployments()
-    
+
     try:
-        from google.protobuf.json_format import MessageToDict
+        from google.protobuf.json_format import MessageToDict  # noqa: PLC0415
         deployments_dict = [MessageToDict(d) for d in deployments]
         print(json.dumps(deployments_dict, indent=2))
     except Exception:
@@ -850,8 +857,8 @@ def deployments_list(args: argparse.Namespace) -> None:
 def deployments_create(args: argparse.Namespace) -> None:
     """Creates a deployment."""
     print(f"Creating deployment {args.deployment_id} for App: {args.app_name}")
-    from cxas_scrapi.core.deployments import Deployments
-    
+    from cxas_scrapi.core.deployments import Deployments  # noqa: PLC0415
+
     deployments_client = Deployments(app_name=args.app_name)
     deployment = deployments_client.create_deployment(
         deployment_id=args.deployment_id,
@@ -878,39 +885,51 @@ def deployments_promote(args: argparse.Namespace) -> None:
         create_version=True,
         version_description=f"Promote {time.strftime('%Y%m%d%H%M%S')}",
     )
-    
+
     try:
         print("Calling app_push directly...")
         app_name = app_push(push_args)
         if not app_name:
             print("Error: Push failed during promotion.")
             sys.exit(1)
-            
+
         version_id = getattr(push_args, "created_version_name", None)
         if not version_id:
             print("Error: Could not get created version ID.")
             sys.exit(1)
-            
+
         # Step 2: Update deployment
-        deployment_id = args.live_deployment_resource_name.split("/deployments/")[-1]
-        
-        from google.api_core.exceptions import NotFound
-        from cxas_scrapi.core.deployments import Deployments
+        deployment_id = (
+            args.live_deployment_resource_name.split("/deployments/")[-1]
+        )
+
+        from google.api_core.exceptions import NotFound  # noqa: PLC0415
+
+        from cxas_scrapi.core.deployments import Deployments  # noqa: PLC0415
         deployments_client = Deployments(app_name=args.app_resource_name)
-        
+
         try:
             deployments_client.get_deployment(deployment_id=deployment_id)
         except NotFound:
             print(f"Error: Deployment '{deployment_id}' does not exist.")
-            print("`deployments promote` requires promoting an existing deployment.")
-            print("Please create the deployment first using `deployments create`.")
+            print(
+                "`deployments promote` requires "
+                "promoting an existing deployment."
+            )
+            print(
+                "Please create the deployment first using `deployments create`."
+            )
             sys.exit(1)
-            
-        print(f"Updating deployment {deployment_id} with version {version_id}...")
-        deployments_client.update_deployment(deployment_id=deployment_id, app_version=version_id)
-        
+
+        print(
+            f"Updating deployment {deployment_id} with version {version_id}..."
+        )
+        deployments_client.update_deployment(
+            deployment_id=deployment_id, app_version=version_id
+        )
+
         print("Successfully promoted agent to live traffic.")
-        
+
     except Exception as e:
         print(f"Error during promotion: {e}")
         sys.exit(1)
