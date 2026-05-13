@@ -460,6 +460,7 @@ def test_simulation_report_rendering():
 
 # Granular unit tests for refactored components
 
+
 def test_llm_user_check_conversation_status_continue():
     mock_genai_client = MagicMock()
     test_case = {
@@ -485,7 +486,7 @@ def test_llm_user_handle_first_turn():
     mock_genai_client = MagicMock()
     test_case = {
         "steps": [{"goal": "greet", "static_utterance": "Hello"}],
-        "session_parameters": {"user_id": "123"}
+        "session_parameters": {"user_id": "123"},
     }
     conv = LLMUserConversation(mock_genai_client, "model", test_case)
     utterance, params = conv._handle_first_turn()
@@ -525,7 +526,7 @@ def test_simulation_evals_get_turns_from_local_trace():
         "User: Hi",
         "Agent Text: Hello there",
         "Agent Transfer: Transferred to live_agent",
-        "Custom Payload: {\"key\": \"value\"}"
+        'Custom Payload: {"key": "value"}',
     ]
     turns = evals._get_turns_from_local_trace(trace)
     assert len(turns) == 1
@@ -589,7 +590,7 @@ def test_simulation_evals_parse_platform_messages():
             evals = SimulationEvals(app_name=app_name)
     messages = [
         {"role": "user", "chunks": [{"text": "Hello"}]},
-        {"role": "agent", "chunks": [{"text": "Hi! How can I help?"}]}
+        {"role": "agent", "chunks": [{"text": "Hi! How can I help?"}]},
     ]
     turns = []
     evals._parse_platform_messages(messages, turns)
@@ -605,7 +606,7 @@ def test_simulation_evals_get_turns_fallback():
             evals = SimulationEvals(app_name=app_name)
     res = {
         "session_id": "sid",
-        "detailed_trace": ["User: Hi", "Agent Text: Hello"]
+        "detailed_trace": ["User: Hi", "Agent Text: Hello"],
     }
     with patch.object(
         evals, "_get_turns_from_platform", side_effect=Exception("Failed")
@@ -710,11 +711,7 @@ def test_simulation_evals_get_turns_from_platform(mock_ch_class):
     # Mocking the dictionary conversion behavior
     mock_conv_dict = {
         "turns": [
-            {
-                "messages": [
-                    {"role": "user", "chunks": [{"text": "hello"}]}
-                ]
-            }
+            {"messages": [{"role": "user", "chunks": [{"text": "hello"}]}]}
         ]
     }
     # SimulationEvals uses type(conv_obj).to_dict(conv_obj)
@@ -727,12 +724,15 @@ def test_simulation_evals_get_turns_from_platform(mock_ch_class):
     assert len(turns) == 1
     assert turns[0].user == "hello"
 
+
 class MockProto:
     def __init__(self, data):
         self.data = data
+
     @staticmethod
     def to_dict(obj):
         return obj.data
+
 
 class TestSimToGolden(unittest.TestCase):
     def setUp(self):
@@ -770,7 +770,7 @@ class TestSimToGolden(unittest.TestCase):
                 method.__get__(self.sim_evals, SimulationEvals),
             )
 
-    @patch('cxas_scrapi.evals.simulation_evals.ConversationHistory')
+    @patch("cxas_scrapi.evals.simulation_evals.ConversationHistory")
     def test_export_results_to_golden(self, mock_ch_class):
         mock_ch = mock_ch_class.return_value
 
@@ -780,38 +780,45 @@ class TestSimToGolden(unittest.TestCase):
                 {
                     "messages": [
                         {"role": "user", "chunks": [{"text": "hello"}]},
-                        {"role": "agent", "chunks": [{"text": "hi there"}]}
+                        {"role": "agent", "chunks": [{"text": "hi there"}]},
                     ]
                 },
                 {
                     "messages": [
                         {"role": "user", "chunks": [{"text": "how are you?"}]},
-                        {"role": "agent", "chunks": [
-                            {"text": "I am good,"},
-                            {
-                                "tool_call": {
-                                    "display_name": "get_weather",
-                                    "args": {"city": "London"}
-                                }
-                            }
-                        ]}
+                        {
+                            "role": "agent",
+                            "chunks": [
+                                {"text": "I am good,"},
+                                {
+                                    "tool_call": {
+                                        "display_name": "get_weather",
+                                        "args": {"city": "London"},
+                                    }
+                                },
+                            ],
+                        },
                     ]
                 },
                 {
                     "messages": [
-                        {"role": "get_weather", "chunks": [
-                            {
-                                "tool_response": {
-                                    "display_name": "get_weather",
-                                    "response": {"temp": 20}
+                        {
+                            "role": "get_weather",
+                            "chunks": [
+                                {
+                                    "tool_response": {
+                                        "display_name": "get_weather",
+                                        "response": {"temp": 20},
+                                    }
                                 }
-                            }
-                        ]},
-                        {"role": "agent", "chunks": [
-                            {"text": "It is 20 degrees."}
-                        ]}
+                            ],
+                        },
+                        {
+                            "role": "agent",
+                            "chunks": [{"text": "It is 20 degrees."}],
+                        },
                     ]
-                }
+                },
             ]
         }
 
@@ -822,15 +829,15 @@ class TestSimToGolden(unittest.TestCase):
                 "session_id": "session1",
                 "name": "Test Conv",
                 "expectation_details": [{"expectation": "Must say hi"}],
-                "session_parameters": {"key": "val"}
+                "session_parameters": {"key": "val"},
             }
         ]
 
         # We need to mock Sessions._expand_pb_struct as it's called in the
         # method
         with patch(
-            'cxas_scrapi.core.sessions.Sessions._expand_pb_struct',
-            side_effect=lambda x: x
+            "cxas_scrapi.core.sessions.Sessions._expand_pb_struct",
+            side_effect=lambda x: x,
         ):
             yaml_output = self.sim_evals.export_results_to_golden(results)
 

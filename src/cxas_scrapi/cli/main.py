@@ -51,7 +51,6 @@ from cxas_scrapi.utils.eval_utils import EvalUtils
 logger = logging.getLogger(__name__)
 
 
-
 def export_eval(args: argparse.Namespace) -> None:
     """Handles the 'export' command."""
 
@@ -845,9 +844,7 @@ def get_parser() -> argparse.ArgumentParser:
     )
 
     # Parser for 'migrate'
-    parser_migrate = subparsers.add_parser(
-        "migrate", help="Migration tools."
-    )
+    parser_migrate = subparsers.add_parser("migrate", help="Migration tools.")
     migrate_subparsers = parser_migrate.add_subparsers(
         title="Migration Commands", dest="migrate_command", required=True
     )

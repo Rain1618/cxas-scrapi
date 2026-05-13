@@ -73,6 +73,7 @@ class DFCXAgentIR(BaseModel):
     agent_transition_route_groups: List[Dict[str, Any]] = Field(
         default_factory=list
     )
+    no_speech_timeout: Optional[str] = "7s"
     code_blocks: List[Dict[str, Any]] = Field(default_factory=list)
 
 

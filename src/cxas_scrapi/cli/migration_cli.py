@@ -81,8 +81,6 @@ class MigrationCLI:
             )
             return False
 
-
-
     def compose_config(self, default_agent_name: str) -> MigrationConfig:
         """Prompt user for configuration and return a MigrationConfig object."""
         self.console.print("\n[bold blue]=== Migration Configuration ===[/]\n")
@@ -355,8 +353,6 @@ class MigrationCLI:
 
         self.console.print("[green]Agent data loaded successfully.[/]")
 
-
-
         while True:
             # 2. Configure
             config = self.compose_config(default_agent_name)
@@ -391,9 +387,7 @@ class MigrationCLI:
             self.console.print(
                 f"Selected Playbooks: {len(filtered_data.playbooks)}"
             )
-            self.console.print(
-                f"Selected Flows: {len(filtered_data.flows)}"
-            )
+            self.console.print(f"Selected Flows: {len(filtered_data.flows)}")
 
             if Confirm.ask("Proceed to Migration?", default=True):
                 break

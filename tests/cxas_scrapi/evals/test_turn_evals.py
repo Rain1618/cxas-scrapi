@@ -403,6 +403,7 @@ def test_topological_sort_circular_dependency(mock_turn_evals):
     with pytest.raises(ValueError, match="Circular dependency detected"):
         mock_turn_evals._topological_sort(cases)
 
+
 def test_run_turn_tests_with_event(mock_turn_evals):
     mock_turn_evals.sessions_client.run.return_value = MagicMock()
 

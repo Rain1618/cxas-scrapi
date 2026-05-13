@@ -52,7 +52,7 @@ class AsyncAgentDesigner:
         for t_id, t_data in ir_tools_dict.items():
             if t_data.type == "TOOLSET":
                 ops = t_data.operation_ids
-                name = t_data.payload.get("displayName", t_id)
+                name = t_data.payload.get("display_name", t_id)
                 # Webhook meta might be in payload or extra field in IRTool if
                 # we add it. For now, let's assume it might be in the payload
                 # under 'webhook_meta' or similar.

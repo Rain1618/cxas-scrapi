@@ -22,16 +22,16 @@ from cxas_scrapi.core.common import Common
 
 
 class GCSUtils(Common):
-  """Utility class for Google Cloud Storage integrations."""
+    """Utility class for Google Cloud Storage integrations."""
 
-  def __init__(
-      self,
-      creds_path: str | None = None,
-      creds_dict: dict[str, str] | None = None,
-      creds: Any = None,
-      scope: list[str] | None = None,
-  ):
-    """Initializes GCSUtils with common auth logic.
+    def __init__(
+        self,
+        creds_path: str | None = None,
+        creds_dict: dict[str, str] | None = None,
+        creds: Any = None,
+        scope: list[str] | None = None,
+    ):
+        """Initializes GCSUtils with common auth logic.
 
         Args:
             creds_path: Path to service account JSON file.
@@ -39,25 +39,25 @@ class GCSUtils(Common):
             creds: Service account credentials object.
             scope: List of scopes for the credentials.
         """
-    super().__init__(
-        creds_path=creds_path,
-        creds_dict=creds_dict,
-        creds=creds,
-        scope=scope,
-    )
-    self.client = storage.Client(
-        credentials=self.creds,
-        project=self.project_id,
-        client_info=self.client_info,
-    )
+        super().__init__(
+            creds_path=creds_path,
+            creds_dict=creds_dict,
+            creds=creds,
+            scope=scope,
+        )
+        self.client = storage.Client(
+            credentials=self.creds,
+            project=self.project_id,
+            client_info=self.client_info,
+        )
 
-  def upload_string(
-      self,
-      gcs_uri: str,
-      content: str,
-      content_type: str = "text/html; charset=utf-8",
-  ) -> str:
-    """Uploads a string to a GCS URI and returns the mtls URL.
+    def upload_string(
+        self,
+        gcs_uri: str,
+        content: str,
+        content_type: str = "text/html; charset=utf-8",
+    ) -> str:
+        """Uploads a string to a GCS URI and returns the mtls URL.
 
         Args:
             gcs_uri: The full GCS URI (e.g., gs://bucket/path/to/file).
@@ -70,17 +70,19 @@ class GCSUtils(Common):
         Raises:
             ValueError: If the GCS URI is invalid.
         """
-    if not gcs_uri.startswith("gs://"):
-      raise ValueError(f"Invalid GCS URI: {gcs_uri}")
+        if not gcs_uri.startswith("gs://"):
+            raise ValueError(f"Invalid GCS URI: {gcs_uri}")
 
-    # Remove gs:// and split into bucket and blob path
-    parts = gcs_uri[5:].split("/", 1)
-    if len(parts) < 2:
-      raise ValueError(f"Invalid GCS URI: {gcs_uri}")
+        # Remove gs:// and split into bucket and blob path
+        parts = gcs_uri[5:].split("/", 1)
+        if len(parts) < 2:
+            raise ValueError(f"Invalid GCS URI: {gcs_uri}")
 
-    bucket_name, blob_path = parts
-    bucket = self.client.get_bucket(bucket_name)
-    blob = bucket.blob(blob_path)
-    blob.upload_from_string(content, content_type=content_type)
+        bucket_name, blob_path = parts
+        bucket = self.client.get_bucket(bucket_name)
+        blob = bucket.blob(blob_path)
+        blob.upload_from_string(content, content_type=content_type)
 
-    return f"https://storage.mtls.cloud.google.com/{bucket_name}/{blob_path}"
+        return (
+            f"https://storage.mtls.cloud.google.com/{bucket_name}/{blob_path}"
+        )

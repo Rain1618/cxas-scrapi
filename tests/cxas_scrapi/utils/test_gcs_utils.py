@@ -21,34 +21,35 @@ from cxas_scrapi.utils.gcs_utils import GCSUtils
 
 @patch("cxas_scrapi.utils.gcs_utils.storage.Client")
 def test_upload_string_success(mock_client_cls):
-  mock_client = mock_client_cls.return_value
-  mock_bucket = Mock()
-  mock_blob = Mock()
-  mock_client.get_bucket.return_value = mock_bucket
-  mock_bucket.blob.return_value = mock_blob
+    mock_client = mock_client_cls.return_value
+    mock_bucket = Mock()
+    mock_blob = Mock()
+    mock_client.get_bucket.return_value = mock_bucket
+    mock_bucket.blob.return_value = mock_blob
 
-  gcs = GCSUtils()
-  gcs_uri = "gs://test-bucket/reports/report.html"
-  content = "<html><body>Test</body></html>"
+    gcs = GCSUtils()
+    gcs_uri = "gs://test-bucket/reports/report.html"
+    content = "<html><body>Test</body></html>"
 
-  res_url = gcs.upload_string(gcs_uri, content)
+    res_url = gcs.upload_string(gcs_uri, content)
 
-  mock_client.get_bucket.assert_called_once_with("test-bucket")
-  mock_bucket.blob.assert_called_once_with("reports/report.html")
-  mock_blob.upload_from_string.assert_called_once_with(
-      content, content_type="text/html; charset=utf-8")
-  assert "test-bucket/reports/report.html" in res_url
+    mock_client.get_bucket.assert_called_once_with("test-bucket")
+    mock_bucket.blob.assert_called_once_with("reports/report.html")
+    mock_blob.upload_from_string.assert_called_once_with(
+        content, content_type="text/html; charset=utf-8"
+    )
+    assert "test-bucket/reports/report.html" in res_url
 
 
 @patch("cxas_scrapi.utils.gcs_utils.storage.Client")
 def test_upload_string_invalid_scheme(mock_client_cls):
-  gcs = GCSUtils()
-  with pytest.raises(ValueError, match="Invalid GCS URI"):
-    gcs.upload_string("https://storage.com/file", "content")
+    gcs = GCSUtils()
+    with pytest.raises(ValueError, match="Invalid GCS URI"):
+        gcs.upload_string("https://storage.com/file", "content")
 
 
 @patch("cxas_scrapi.utils.gcs_utils.storage.Client")
 def test_upload_string_no_path(mock_client_cls):
-  gcs = GCSUtils()
-  with pytest.raises(ValueError, match="Invalid GCS URI"):
-    gcs.upload_string("gs://bucket", "content")
+    gcs = GCSUtils()
+    with pytest.raises(ValueError, match="Invalid GCS URI"):
+        gcs.upload_string("gs://bucket", "content")

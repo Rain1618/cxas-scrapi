@@ -31,7 +31,7 @@ class GeminiGenerate:
         location: str = "global",
         credentials=None,
         model_name: str = "gemini-3.1-pro-preview",
-        max_concurrent_requests: int = 2,
+        max_concurrent_requests: int = 3,
     ):
         """Initializes the GeminiGenerate client.
 
@@ -64,6 +64,7 @@ class GeminiGenerate:
         model_name: Optional[str] = None,
         response_mime_type: Optional[str] = None,
         response_schema: Optional[Any] = None,
+        temperature: Optional[float] = 1.0,
     ) -> Optional[Any]:
         """Generates content using the Gemini model.
 
@@ -75,6 +76,7 @@ class GeminiGenerate:
               'application/json').
             response_schema: Optional Pydantic model or schema for structured
               output.
+            temperature: Optional temperature setting. Defaults to 1.0.
 
         Returns:
             The generated text response or parsed object, or None on failure.
@@ -88,6 +90,8 @@ class GeminiGenerate:
             config_args["response_mime_type"] = response_mime_type
         if response_schema:
             config_args["response_schema"] = response_schema
+        if temperature is not None:
+            config_args["temperature"] = temperature
 
         config = None
         if config_args:
@@ -114,6 +118,7 @@ class GeminiGenerate:
         response_schema: Optional[Any] = None,
         max_retries: int = 5,
         base_delay_seconds: int = 10,
+        temperature: Optional[float] = 1.0,
     ) -> Optional[Any]:
         """Generates content asynchronously using the Gemini model.
 
@@ -127,6 +132,7 @@ class GeminiGenerate:
               output.
             max_retries: Maximum number of retries for transient errors.
             base_delay_seconds: Base delay for exponential backoff.
+            temperature: Optional temperature setting. Defaults to 1.0.
 
         Returns:
             The generated text response or parsed object, or None on failure.
@@ -140,6 +146,8 @@ class GeminiGenerate:
             config_args["response_mime_type"] = response_mime_type
         if response_schema:
             config_args["response_schema"] = response_schema
+        if temperature is not None:
+            config_args["temperature"] = temperature
 
         config = None
         if config_args:

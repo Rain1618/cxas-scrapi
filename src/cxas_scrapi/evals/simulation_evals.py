@@ -722,9 +722,7 @@ class SimulationEvals(Apps):
         """Aggregates results from multiple simulation jobs."""
         results = []
         with Progress() as progress:
-            task_id = progress.add_task(
-                "Running Simulations", total=len(jobs)
-            )
+            task_id = progress.add_task("Running Simulations", total=len(jobs))
 
             if parallel <= 1:
                 for tc, run_idx in jobs:
