@@ -56,13 +56,15 @@
           },
           {
             "expectation": {
-              "note": "Check_Readback_All_Three",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "Johnson"
+              "note": "Check_All_Three_Pending",
+              "updatedVariables": {
+                "sm": {
+                  "pending": {
+                    "party_size": 2,
+                    "preferred_date": "2026-06-20",
+                    "guest_name": "Johnson"
                   }
-                ]
+                }
               }
             }
           }
@@ -77,13 +79,15 @@
           },
           {
             "expectation": {
-              "note": "Check_AvailableTimes_Presented",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "6:00 PM"
+              "note": "Check_All_Three_Confirmed",
+              "updatedVariables": {
+                "sm": {
+                  "filled": {
+                    "party_size": 2,
+                    "preferred_date": "2026-06-20",
+                    "guest_name": "Johnson"
                   }
-                ]
+                }
               }
             }
           }
@@ -106,13 +110,13 @@
           },
           {
             "expectation": {
-              "note": "Check_Readback_Time",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "6"
+              "note": "Check_Time_Pending",
+              "updatedVariables": {
+                "sm": {
+                  "pending": {
+                    "selected_time": "18:00"
                   }
-                ]
+                }
               }
             }
           }
@@ -127,13 +131,13 @@
           },
           {
             "expectation": {
-              "note": "Check_Asks_For_Requests",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "special"
+              "note": "Check_Time_Confirmed",
+              "updatedVariables": {
+                "sm": {
+                  "filled": {
+                    "selected_time": "18:00"
                   }
-                ]
+                }
               }
             }
           }
@@ -156,13 +160,14 @@
           },
           {
             "expectation": {
-              "note": "Check_Readback_Requests",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "birthday"
-                  }
-                ]
+              "note": "Check_Time_Still_Filled",
+              "updatedVariables": {
+                "sm": {
+                  "filled": {
+                    "selected_time": "18:00"
+                  },
+                  "status": "in_progress"
+                }
               }
             }
           }
@@ -177,13 +182,11 @@
           },
           {
             "expectation": {
-              "note": "Check_Booking_Confirmed",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "BN-"
-                  }
-                ]
+              "note": "Check_Booking_Complete",
+              "updatedVariables": {
+                "sm": {
+                  "status": "complete"
+                }
               }
             }
           }
@@ -191,7 +194,6 @@
       }
     ],
     "evaluationExpectations": [
-      "Warm Restaurant Host Persona",
       "Tool-Truth - Uses Exact System Values",
       "No Technical Leakage"
     ]

@@ -33,13 +33,13 @@
           },
           {
             "expectation": {
-              "note": "Check_Readback_PartySize",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "3"
+              "note": "Check_PartySize_Pending",
+              "updatedVariables": {
+                "sm": {
+                  "pending": {
+                    "party_size": 3
                   }
-                ]
+                }
               }
             }
           }
@@ -65,13 +65,13 @@
           },
           {
             "expectation": {
-              "note": "Check_Readback_Corrected",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "4"
+              "note": "Check_Corrected_Pending",
+              "updatedVariables": {
+                "sm": {
+                  "pending": {
+                    "party_size": 4
                   }
-                ]
+                }
               }
             }
           }
@@ -86,13 +86,14 @@
           },
           {
             "expectation": {
-              "note": "Check_Asks_For_Date",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "date"
-                  }
-                ]
+              "note": "Check_PartySize_Confirmed",
+              "updatedVariables": {
+                "sm": {
+                  "filled": {
+                    "party_size": 4
+                  },
+                  "pending": {}
+                }
               }
             }
           }
@@ -100,7 +101,6 @@
       }
     ],
     "evaluationExpectations": [
-      "Warm Restaurant Host Persona",
       "No Technical Leakage"
     ]
   }

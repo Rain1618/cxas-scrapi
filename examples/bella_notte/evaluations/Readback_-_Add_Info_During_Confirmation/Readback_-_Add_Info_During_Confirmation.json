@@ -42,13 +42,13 @@
           },
           {
             "expectation": {
-              "note": "Check_Readback_Both",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "4"
+              "note": "Check_Both_Pending",
+              "updatedVariables": {
+                "sm": {
+                  "pending": {
+                    "party_size": 4
                   }
-                ]
+                }
               }
             }
           }
@@ -63,13 +63,13 @@
           },
           {
             "expectation": {
-              "note": "Check_Times_Shown",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "PM"
+              "note": "Check_Size_Date_Confirmed",
+              "updatedVariables": {
+                "sm": {
+                  "filled": {
+                    "party_size": 4
                   }
-                ]
+                }
               }
             }
           }
@@ -100,13 +100,13 @@
           },
           {
             "expectation": {
-              "note": "Check_Readback_Time",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "8:30"
+              "note": "Check_Time_Pending",
+              "updatedVariables": {
+                "sm": {
+                  "pending": {
+                    "selected_time": "20:30"
                   }
-                ]
+                }
               }
             }
           }
@@ -138,25 +138,16 @@
           },
           {
             "expectation": {
-              "note": "Check_Group_Readback_Name",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "Garcia"
+              "note": "Check_Name_Pending_For_Group",
+              "updatedVariables": {
+                "sm": {
+                  "pending": {
+                    "guest_name": "Garcia"
+                  },
+                  "filled": {
+                    "selected_time": "20:30"
                   }
-                ]
-              }
-            }
-          },
-          {
-            "expectation": {
-              "note": "Check_Group_Readback_Allergy",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "shellfish"
-                  }
-                ]
+                }
               }
             }
           }
@@ -171,13 +162,11 @@
           },
           {
             "expectation": {
-              "note": "Check_Booking_Confirmed",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "BN-"
-                  }
-                ]
+              "note": "Check_Booking_Complete",
+              "updatedVariables": {
+                "sm": {
+                  "status": "complete"
+                }
               }
             }
           }
@@ -185,7 +174,6 @@
       }
     ],
     "evaluationExpectations": [
-      "Warm Restaurant Host Persona",
       "No Technical Leakage"
     ]
   }

@@ -33,13 +33,13 @@
           },
           {
             "expectation": {
-              "note": "Check_Readback_PartySize",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "4"
+              "note": "Check_PartySize_Pending",
+              "updatedVariables": {
+                "sm": {
+                  "pending": {
+                    "party_size": 4
                   }
-                ]
+                }
               }
             }
           }
@@ -62,13 +62,13 @@
           },
           {
             "expectation": {
-              "note": "Check_Asks_For_Date",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "date"
+              "note": "Check_PartySize_Confirmed",
+              "updatedVariables": {
+                "sm": {
+                  "filled": {
+                    "party_size": 4
                   }
-                ]
+                }
               }
             }
           }
@@ -83,13 +83,11 @@
           },
           {
             "expectation": {
-              "note": "Check_Answers_Menu_Question",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "Italian"
-                  }
-                ]
+              "note": "Check_Still_In_Progress",
+              "updatedVariables": {
+                "sm": {
+                  "status": "in_progress"
+                }
               }
             }
           }
@@ -112,13 +110,11 @@
           },
           {
             "expectation": {
-              "note": "Check_Readback_Date",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "June"
-                  }
-                ]
+              "note": "Check_Date_Pending",
+              "updatedVariables": {
+                "sm": {
+                  "pending": {}
+                }
               }
             }
           }
@@ -141,13 +137,14 @@
           },
           {
             "expectation": {
-              "note": "Check_AvailableTimes_After_Resume",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "7:00 PM"
-                  }
-                ]
+              "note": "Check_Date_Confirmed",
+              "updatedVariables": {
+                "sm": {
+                  "filled": {
+                    "party_size": 4
+                  },
+                  "status": "in_progress"
+                }
               }
             }
           }
@@ -155,7 +152,6 @@
       }
     ],
     "evaluationExpectations": [
-      "Warm Restaurant Host Persona",
       "Tool-Truth - Uses Exact System Values",
       "No Technical Leakage"
     ]

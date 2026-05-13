@@ -45,13 +45,14 @@
           },
           {
             "expectation": {
-              "note": "Check_Batched_Readback",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "4"
+              "note": "Check_Both_Pending",
+              "updatedVariables": {
+                "sm": {
+                  "pending": {
+                    "party_size": 4,
+                    "preferred_date": "2026-06-25"
                   }
-                ]
+                }
               }
             }
           }
@@ -66,13 +67,14 @@
           },
           {
             "expectation": {
-              "note": "Check_AvailableTimes_After_Confirm",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "7:00 PM"
+              "note": "Check_Both_Confirmed",
+              "updatedVariables": {
+                "sm": {
+                  "filled": {
+                    "party_size": 4,
+                    "preferred_date": "2026-06-25"
                   }
-                ]
+                }
               }
             }
           }
@@ -80,7 +82,6 @@
       }
     ],
     "evaluationExpectations": [
-      "Warm Restaurant Host Persona",
       "Tool-Truth - Uses Exact System Values",
       "No Technical Leakage"
     ]

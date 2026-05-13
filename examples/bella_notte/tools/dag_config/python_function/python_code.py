@@ -49,7 +49,13 @@ def dag_config() -> dict[str, Any]:
                           " size. Please call us at 555-0100"
                           " and we'll help you directly."
                       ),
-                      "then": "escalate",
+                      "then": {
+                          "tool": "end_session",
+                          "args": {
+                              "reason": "retry_exhausted",
+                              "session_escalated": True,
+                          },
+                      },
                   },
               },
           },
@@ -92,7 +98,13 @@ def dag_config() -> dict[str, Any]:
                           " 555-0100 and we'll help you"
                           " directly."
                       ),
-                      "then": "escalate",
+                      "then": {
+                          "tool": "end_session",
+                          "args": {
+                              "reason": "retry_exhausted",
+                              "session_escalated": True,
+                          },
+                      },
                   },
               },
           },
@@ -128,7 +140,13 @@ def dag_config() -> dict[str, Any]:
                           " 555-0100 and we'll help you"
                           " directly."
                       ),
-                      "then": "escalate",
+                      "then": {
+                          "tool": "end_session",
+                          "args": {
+                              "reason": "retry_exhausted",
+                              "session_escalated": True,
+                          },
+                      },
                   },
               },
           },
@@ -180,7 +198,13 @@ def dag_config() -> dict[str, Any]:
                           " us at 555-0100 and we'll"
                           " help you directly."
                       ),
-                      "then": "escalate",
+                      "then": {
+                          "tool": "end_session",
+                          "args": {
+                              "reason": "retry_exhausted",
+                              "session_escalated": True,
+                          },
+                      },
                   },
               },
           },
@@ -217,7 +241,13 @@ def dag_config() -> dict[str, Any]:
                           " 555-0100 and we'll help you"
                           " directly."
                       ),
-                      "then": "escalate",
+                      "then": {
+                          "tool": "end_session",
+                          "args": {
+                              "reason": "retry_exhausted",
+                              "session_escalated": True,
+                          },
+                      },
                   },
               },
           },
@@ -274,7 +304,13 @@ def dag_config() -> dict[str, Any]:
                           " us at 555-0100 to check for"
                           " openings."
                       ),
-                      "then": "escalate",
+                      "then": {
+                          "tool": "end_session",
+                          "args": {
+                              "reason": "retry_exhausted",
+                              "session_escalated": True,
+                          },
+                      },
                   },
               },
           },
@@ -318,7 +354,13 @@ def dag_config() -> dict[str, Any]:
                           " 555-0100 and we'll get you"
                           " sorted."
                       ),
-                      "then": "escalate",
+                      "then": {
+                          "tool": "end_session",
+                          "args": {
+                              "reason": "retry_exhausted",
+                              "session_escalated": True,
+                          },
+                      },
                   },
               },
           },
@@ -336,7 +378,13 @@ def dag_config() -> dict[str, Any]:
                   " call us at 555-0100 and we'll"
                   " help you directly."
               ),
-              "then": "escalate",
+              "then": {
+                  "tool": "end_session",
+                  "args": {
+                      "reason": "retry_exhausted",
+                      "session_escalated": True,
+                  },
+              },
           },
       },
       "progress_stall": {
@@ -348,7 +396,13 @@ def dag_config() -> dict[str, Any]:
                   " us at 555-0100 and we'll help"
                   " you directly."
               ),
-              "then": "escalate",
+              "then": {
+                  "tool": "end_session",
+                  "args": {
+                      "reason": "retry_exhausted",
+                      "session_escalated": True,
+                  },
+              },
           },
       },
   }

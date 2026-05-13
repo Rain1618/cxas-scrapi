@@ -33,13 +33,12 @@
           },
           {
             "expectation": {
-              "note": "Check_Events_Team_Redirect",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "events@bellanotte.com"
-                  }
-                ]
+              "note": "Check_No_PartySize_Stored",
+              "updatedVariables": {
+                "sm": {
+                  "pending": {},
+                  "filled": {}
+                }
               }
             }
           }
@@ -65,13 +64,13 @@
           },
           {
             "expectation": {
-              "note": "Check_Readback_PartySize",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "4"
+              "note": "Check_PartySize_Pending",
+              "updatedVariables": {
+                "sm": {
+                  "pending": {
+                    "party_size": 4
                   }
-                ]
+                }
               }
             }
           }
@@ -86,13 +85,14 @@
           },
           {
             "expectation": {
-              "note": "Check_Asks_For_Date_After_Recovery",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "date"
-                  }
-                ]
+              "note": "Check_PartySize_Confirmed",
+              "updatedVariables": {
+                "sm": {
+                  "filled": {
+                    "party_size": 4
+                  },
+                  "pending": {}
+                }
               }
             }
           }

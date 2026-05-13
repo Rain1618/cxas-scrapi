@@ -1,7 +1,7 @@
 {
   "name": "046e9d15-2eeb-4a4e-a3ff-ebba394cfe32",
   "displayName": "Multi-Slot Input - Date and Party Size Together",
-  "description": "User provides party size and date in a single message. Both setter tools fire, then batched readback confirmation, then FindAvailableTimes auto-executes. Name is deferred (BookReservation input) — no individual readback. After both name and requests are collected, a combined group readback fires.",
+  "description": "User provides party size and date in a single message. Both setter tools fire, then batched readback confirmation, then FindAvailableTimes auto-executes. Name is deferred (BookReservation input) \u2014 no individual readback. After both name and requests are collected, a combined group readback fires.",
   "tags": [
     "slot-machine",
     "multi-slot",
@@ -46,13 +46,14 @@
           },
           {
             "expectation": {
-              "note": "Check_Readback_Both",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "4"
+              "note": "Check_Both_Pending",
+              "updatedVariables": {
+                "sm": {
+                  "pending": {
+                    "party_size": 4,
+                    "preferred_date": "2026-06-17"
                   }
-                ]
+                }
               }
             }
           }
@@ -67,13 +68,14 @@
           },
           {
             "expectation": {
-              "note": "Check_AvailableTimes_Presented",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "7:00 PM"
+              "note": "Check_Both_Confirmed",
+              "updatedVariables": {
+                "sm": {
+                  "filled": {
+                    "party_size": 4,
+                    "preferred_date": "2026-06-17"
                   }
-                ]
+                }
               }
             }
           }
@@ -96,13 +98,13 @@
           },
           {
             "expectation": {
-              "note": "Check_Readback_Time",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "8:30"
+              "note": "Check_Time_Pending",
+              "updatedVariables": {
+                "sm": {
+                  "pending": {
+                    "selected_time": "20:30"
                   }
-                ]
+                }
               }
             }
           }
@@ -137,13 +139,16 @@
           },
           {
             "expectation": {
-              "note": "Check_Asks_SpecialRequests_No_Name_Readback",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "special"
+              "note": "Check_Name_Deferred_To_Pending",
+              "updatedVariables": {
+                "sm": {
+                  "pending": {
+                    "guest_name": "Chen"
+                  },
+                  "filled": {
+                    "selected_time": "20:30"
                   }
-                ]
+                }
               }
             }
           }
@@ -166,25 +171,13 @@
           },
           {
             "expectation": {
-              "note": "Check_Group_Readback_Name",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "Chen"
+              "note": "Check_Deferred_Group_Pending",
+              "updatedVariables": {
+                "sm": {
+                  "pending": {
+                    "guest_name": "Chen"
                   }
-                ]
-              }
-            }
-          },
-          {
-            "expectation": {
-              "note": "Check_Group_Readback_Requests",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "no special"
-                  }
-                ]
+                }
               }
             }
           }
@@ -199,13 +192,11 @@
           },
           {
             "expectation": {
-              "note": "Check_Booking_Confirmed",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "BN-"
-                  }
-                ]
+              "note": "Check_Booking_Complete",
+              "updatedVariables": {
+                "sm": {
+                  "status": "complete"
+                }
               }
             }
           }
@@ -213,7 +204,6 @@
       }
     ],
     "evaluationExpectations": [
-      "Warm Restaurant Host Persona",
       "Tool-Truth - Uses Exact System Values",
       "No Technical Leakage",
       "Slot-Filling Flow Progression"

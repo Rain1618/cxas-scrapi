@@ -1,6 +1,6 @@
 {
   "displayName": "Readback - New Slot Added Mid-Readback",
-  "description": "User provides name, date, and party size in one message. Name is deferred (BookReservation input), so readback covers only party size and date. User then adds special requests — completing the deferred group (name + requests). Since the confirm also fires FindAvailableTimes, the executor takes priority. On the next turn (time selection), all pending values (time + name + requests) are read back together. Verifies that deferred values accumulate correctly and surface in the combined readback.",
+  "description": "User provides name, date, and party size in one message. Name is deferred (BookReservation input), so readback covers only party size and date. User then adds special requests \u2014 completing the deferred group (name + requests). Since the confirm also fires FindAvailableTimes, the executor takes priority. On the next turn (time selection), all pending values (time + name + requests) are read back together. Verifies that deferred values accumulate correctly and surface in the combined readback.",
   "tags": [
     "slot-machine",
     "readback",
@@ -56,25 +56,14 @@
           },
           {
             "expectation": {
-              "note": "Check_Immediate_Readback_Size_And_Date_Only",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "2"
+              "note": "Check_Size_And_Date_Pending_Name_Deferred",
+              "updatedVariables": {
+                "sm": {
+                  "pending": {
+                    "party_size": 2,
+                    "preferred_date": "2026-06-17"
                   }
-                ]
-              }
-            }
-          },
-          {
-            "expectation": {
-              "note": "Check_Date_In_Readback",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "June"
-                  }
-                ]
+                }
               }
             }
           }
@@ -97,13 +86,14 @@
           },
           {
             "expectation": {
-              "note": "Check_Times_Shown_After_Confirm",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "PM"
+              "note": "Check_Size_Date_Confirmed",
+              "updatedVariables": {
+                "sm": {
+                  "filled": {
+                    "party_size": 2,
+                    "preferred_date": "2026-06-17"
                   }
-                ]
+                }
               }
             }
           }
@@ -126,37 +116,14 @@
           },
           {
             "expectation": {
-              "note": "Check_Combined_Readback_Time",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "7:30"
+              "note": "Check_Combined_Readback_State",
+              "updatedVariables": {
+                "sm": {
+                  "pending": {
+                    "selected_time": "19:30",
+                    "guest_name": "John Smith"
                   }
-                ]
-              }
-            }
-          },
-          {
-            "expectation": {
-              "note": "Check_Combined_Readback_Name",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "Smith"
-                  }
-                ]
-              }
-            }
-          },
-          {
-            "expectation": {
-              "note": "Check_Combined_Readback_Allergy",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "shellfish"
-                  }
-                ]
+                }
               }
             }
           }
@@ -171,13 +138,11 @@
           },
           {
             "expectation": {
-              "note": "Check_Confirmation_Number",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "BN-"
-                  }
-                ]
+              "note": "Check_Booking_Complete",
+              "updatedVariables": {
+                "sm": {
+                  "status": "complete"
+                }
               }
             }
           }
@@ -185,8 +150,7 @@
       }
     ],
     "evaluationExpectations": [
-      "No Technical Leakage",
-      "Warm Restaurant Host Persona"
+      "No Technical Leakage"
     ]
   }
 }

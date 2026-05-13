@@ -22,13 +22,12 @@
           },
           {
             "expectation": {
-              "note": "Check_Greeting_Asks_Party_Size",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "help"
-                  }
-                ]
+              "note": "Check_Status_In_Progress",
+              "updatedVariables": {
+                "sm": {
+                  "status": "in_progress",
+                  "filled": {}
+                }
               }
             }
           }
@@ -43,13 +42,11 @@
           },
           {
             "expectation": {
-              "note": "Check_No_Escalation_Yet_Turn2",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "reserv"
-                  }
-                ]
+              "note": "Check_Still_In_Progress_Turn2",
+              "updatedVariables": {
+                "sm": {
+                  "status": "in_progress"
+                }
               }
             }
           }
@@ -64,13 +61,11 @@
           },
           {
             "expectation": {
-              "note": "Check_No_Escalation_Yet_Turn3",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "reserv"
-                  }
-                ]
+              "note": "Check_Still_In_Progress_Turn3",
+              "updatedVariables": {
+                "sm": {
+                  "status": "in_progress"
+                }
               }
             }
           }
@@ -85,13 +80,23 @@
           },
           {
             "expectation": {
-              "note": "Check_Escalation_Message",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "555-0100"
-                  }
-                ]
+              "note": "Check_Escalated",
+              "updatedVariables": {
+                "sm": {
+                  "status": "escalated"
+                }
+              }
+            }
+          },
+          {
+            "expectation": {
+              "note": "Check_End_Session_Called",
+              "toolCall": {
+                "tool": "end_session",
+                "args": {
+                  "reason": "retry_exhausted",
+                  "session_escalated": true
+                }
               }
             }
           }

@@ -33,13 +33,13 @@
           },
           {
             "expectation": {
-              "note": "Check_Readback_PartySize",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "2"
+              "note": "Check_PartySize_Pending",
+              "updatedVariables": {
+                "sm": {
+                  "pending": {
+                    "party_size": 2
                   }
-                ]
+                }
               }
             }
           }
@@ -54,13 +54,13 @@
           },
           {
             "expectation": {
-              "note": "Check_Asks_For_Date",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "date"
+              "note": "Check_PartySize_Confirmed",
+              "updatedVariables": {
+                "sm": {
+                  "filled": {
+                    "party_size": 2
                   }
-                ]
+                }
               }
             }
           }
@@ -75,13 +75,11 @@
           },
           {
             "expectation": {
-              "note": "Check_No_Escalation_Turn3",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "date"
-                  }
-                ]
+              "note": "Check_Still_In_Progress_Turn3",
+              "updatedVariables": {
+                "sm": {
+                  "status": "in_progress"
+                }
               }
             }
           }
@@ -96,13 +94,11 @@
           },
           {
             "expectation": {
-              "note": "Check_No_Escalation_Turn4",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "date"
-                  }
-                ]
+              "note": "Check_Still_In_Progress_Turn4",
+              "updatedVariables": {
+                "sm": {
+                  "status": "in_progress"
+                }
               }
             }
           }
@@ -117,13 +113,23 @@
           },
           {
             "expectation": {
-              "note": "Check_Escalation_Message",
-              "agentResponse": {
-                "chunks": [
-                  {
-                    "text": "555-0100"
-                  }
-                ]
+              "note": "Check_Escalated",
+              "updatedVariables": {
+                "sm": {
+                  "status": "escalated"
+                }
+              }
+            }
+          },
+          {
+            "expectation": {
+              "note": "Check_End_Session_Called",
+              "toolCall": {
+                "tool": "end_session",
+                "args": {
+                  "reason": "retry_exhausted",
+                  "session_escalated": true
+                }
               }
             }
           }
