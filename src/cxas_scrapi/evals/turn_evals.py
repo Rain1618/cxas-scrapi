@@ -474,12 +474,15 @@ class TurnEvals:
                 THRESHOLD = 0.75
                 actual = full_text.strip()
                 embeddings = self.genai_client.generate_embeddings(
-                    contents = [actual, expected]
+                    contents=[actual, expected]
                 )
-                embeddings_length = len([
-                    embedding for embedding in embeddings
-                    if embedding is not None
-                ])
+                embeddings_length = len(
+                    [
+                        embedding
+                        for embedding in embeddings
+                        if embedding is not None
+                    ]
+                )
                 if embeddings_length != 2:
                     status = "FAILURE"
                     justification = (

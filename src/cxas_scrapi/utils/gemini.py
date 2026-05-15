@@ -266,9 +266,7 @@ class GeminiGenerate:
         return None
 
     def generate_embeddings(
-        self,
-        contents: list[str],
-        model_name: str = "gemini-embedding-001"
+        self, contents: list[str], model_name: str = "gemini-embedding-001"
     ) -> list[list[float] | None]:
         """Generates embeddings using the Gemini model.
 
