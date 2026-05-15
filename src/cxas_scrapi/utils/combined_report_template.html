@@ -134,8 +134,8 @@
 <script>
 var failuresOnly = false;
 
-function jumpTo(evalName) {
-  var card = document.getElementById('eval-' + evalName);
+function jumpTo(type, evalName) {
+  var card = document.getElementById('eval-' + type + '-' + evalName) || document.getElementById('eval-' + evalName);
   if (!card) return;
   var details = card.querySelectorAll('details.run-detail');
   var opened = false;
@@ -151,8 +151,8 @@ function jumpTo(evalName) {
   setTimeout(function() { card.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 50);
 }
 
-function jumpToRun(evalName, runIdx) {
-  var card = document.getElementById('eval-' + evalName);
+function jumpToRun(type, evalName, runIdx) {
+  var card = document.getElementById('eval-' + type + '-' + evalName) || document.getElementById('eval-' + evalName);
   if (!card) return;
   var details = card.querySelectorAll('details.run-detail');
   details.forEach(function(d) { d.removeAttribute('open'); });
@@ -253,7 +253,7 @@ function collapseAll() {
     {% set safe_name = u["name"] | replace("'", "\\'") %}
     {% set passed_str = "true" if u["passed"] else "false" %}
 
-    <tr class="clickable" data-passed="{{ passed_str }}" onclick="jumpTo('{{ safe_name }}')">
+    <tr class="clickable" data-passed="{{ passed_str }}" onclick="jumpTo('{{ u['type'] }}', '{{ safe_name }}')">
       <td>
         {% if u["type"] == "sim" and "run_results" in u %}
           {% set p = u["run_results"] | selectattr('passed') | list | length %}
@@ -277,7 +277,7 @@ function collapseAll() {
         {% if u["type"] == "sim" and "run_results" in u %}
           {% for r in u["run_results"] %}
             {% set dot_cls = "p" if r.get("passed") else "f" %}
-            <span class="run-dot {{ dot_cls }}" title="Run {{ r.get('run','?') }}" onclick="event.stopPropagation(); jumpToRun('{{ safe_name }}', {{ loop.index0 }})"></span>
+            <span class="run-dot {{ dot_cls }}" title="Run {{ r.get('run','?') }}" onclick="event.stopPropagation(); jumpToRun('{{ u['type'] }}', '{{ safe_name }}', {{ loop.index0 }})"></span>
           {% endfor %}
         {% else %}
           {{ u["detail"] | escape }}
@@ -293,8 +293,8 @@ function collapseAll() {
     <div class="failure-group">
       <h3>{{ reason | escape }}</h3>
       <div class="affected">{{ evals | length }} eval(s):
-        {% for e in evals | sort %}
-          <span class="affected-item" style="cursor:pointer" onclick="jumpTo('{{ e | replace("'", "\\'") }}')">{{ e | escape }}</span>
+        {% for type, name in evals | sort %}
+          <span class="affected-item" style="cursor:pointer" onclick="jumpTo('{{ type }}', '{{ name | replace("'", "\\'") }}')">{{ name | escape }} ({{ type }})</span>
         {% endfor %}
       </div>
     </div>
@@ -310,7 +310,7 @@ function collapseAll() {
     {% set failed_str = "false" if r["passed"] else "true" %}
     {% set passed_str = "true" if r["passed"] else "false" %}
 
-    <div class="eval-card" id="eval-{{ r['name'] }}" data-passed="{{ passed_str }}">
+    <div class="eval-card" id="eval-golden-{{ r['name'] }}" data-passed="{{ passed_str }}">
       <div class="eval-header {{ cls }}">
         <span>{{ r["name"] | escape }} <span class="badge golden">golden</span></span>
         <span class="badge {{ 'pass' if r['passed'] else 'fail' }}">{{ status }}</span>
@@ -340,13 +340,16 @@ function collapseAll() {
             {% for turn in r.get('turns', []) %}
               {% set sem = turn.get('semantic_score') %}
               {% set sem_cls = "sem-" ~ sem if sem is not none else "" %}
-              {% set any_fail = turn.get('comparisons', []) | selectattr('outcome', 'equalto', 'FAIL') | list | length > 0 %}
+              {% set any_fail = (turn.get('comparisons', []) | selectattr('outcome', 'equalto', 'FAIL') | list | length > 0) or (sem is not none and sem < 3) %}
               {% set row_cls = "mismatch" if any_fail else "match" %}
 
               <div class="turn-row {{ row_cls }}">
                 <div class="turn-header">Turn {{ turn["index"] }}
                   {% if sem is not none %}
                     <span class="sem-score {{ sem_cls }}">{{ sem }}/4</span>
+                    {% if turn.get('semantic_explanation') %}
+                      <span class="meta">({{ turn['semantic_explanation'] | escape }})</span>
+                    {% endif %}
                   {% endif %}
                 </div>
 
@@ -355,15 +358,28 @@ function collapseAll() {
                 {% endif %}
 
                 {% for comp in turn.get('comparisons', []) %}
-                  {% set c_cls = "pass-bg" if comp["outcome"] != "FAIL" else "fail-bg" %}
-                  {% set badge_cls = "pass" if comp["outcome"] != "FAIL" else "fail" %}
+                  {% set is_fail = comp["outcome"] == "FAIL" or (ctype == "text" and sem is not none and sem < 3) %}
+                  {% set c_cls = "fail-bg" if is_fail else "pass-bg" %}
+                  {% set badge_cls = "fail" if is_fail else ("pass" if comp["outcome"] == "PASS" else "") %}
                   {% set ctype = comp.get('type', '?') %}
                   {% set icon = {"text": "&#128172;", "tool_call": "&#128295;", "transfer": "&#128256;"}.get(ctype, "") %}
 
                   <div class="comparison {{ c_cls }}">
-                    <span class="badge {{ badge_cls }}">{{ comp["outcome"] }}</span> {{ icon | safe }} <b>{{ ctype }}</b><br>
-                    <span class="comp-label">Expected:</span> <span class="comp-text">{{ comp.get('expected', '') | string | truncate(150) | escape }}</span><br>
-                    <span class="comp-label">Actual:</span> <span class="comp-text">{{ comp.get('actual', '') | string | truncate(150) | escape }}</span>
+                    {% if ctype != "text" or comp["outcome"] != "UNSPECIFIED" %}
+                      <span class="badge {{ badge_cls }}">{{ comp["outcome"] }}</span>
+                    {% endif %}
+                    {{ icon | safe }} <b>{{ ctype }}</b><br>
+                    <span class="comp-label">Expected:</span> <span class="comp-text">{{ comp.get('expected', '') | string | escape }}</span><br>
+                    <span class="comp-label">Actual:</span> <span class="comp-text">{{ comp.get('actual', '') | string | escape }}</span>
+
+                    {% if ctype == "tool_call" %}
+                      {% if comp.get('tool_invocation_score') is not none %}
+                        <div><span class="comp-label">Tool Invocation Score:</span> {{ comp['tool_invocation_score'] }}</div>
+                      {% endif %}
+                      {% if comp.get('tool_invocation_explanation') %}
+                        <div><span class="comp-label">Explanation:</span> {{ comp['tool_invocation_explanation'] | escape }}</div>
+                      {% endif %}
+                    {% endif %}
 
                     {% if ctype == "tool_call" and (comp.get('expected_args') or comp.get('actual_args')) %}
                       <details style="margin-top:4px;"><summary style="cursor:pointer;font-size:0.85em;color:#666;">Tool call args</summary>
@@ -420,7 +436,7 @@ function collapseAll() {
     {% set cls = "pass-bg" if s['pass'] == s['total'] else "fail-bg" %}
     {% set passed_str = "true" if s['pass'] == s['total'] else "false" %}
 
-    <div class="eval-card" id="eval-{{ name }}" data-passed="{{ passed_str }}">
+    <div class="eval-card" id="eval-sim-{{ name }}" data-passed="{{ passed_str }}">
       <div class="eval-header {{ cls }}">
         <span>{{ name | escape }} <span class="badge sim">sim</span></span>
         <span>{{ score }}</span>

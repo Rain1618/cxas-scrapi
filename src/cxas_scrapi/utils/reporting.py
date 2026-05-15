@@ -818,13 +818,15 @@ def generate_combined_html_report(
                             reason = "Semantic similarity too low"
                         else:
                             continue
-                        failure_groups.setdefault(reason, set()).add(r["name"])
+                        failure_groups.setdefault(reason, set()).add(
+                            ("golden", r["name"])
+                        )
             for exp in r.get("expectations", []):
                 if exp.get("status") == "Not Met":
                     reason = str(exp.get("expectation", ""))[:80]
                     failure_groups.setdefault(
                         f"Expectation not met: {reason}", set()
-                    ).add(r["name"])
+                    ).add(("golden", r["name"]))
 
     # Collect sim failures
     if sim_results:
@@ -834,14 +836,18 @@ def generate_combined_html_report(
             for step in r.get("step_details", []):
                 if step.get("status") != "Completed":
                     reason = f"Goal not completed: {step.get('goal', '')[:60]}"
-                    failure_groups.setdefault(reason, set()).add(r["name"])
+                    failure_groups.setdefault(reason, set()).add(
+                        ("sim", r["name"])
+                    )
             for exp in r.get("expectation_details", []):
                 if exp.get("status") == "Not Met":
                     reason = (
                         f"Expectation not met: "
                         f"{exp.get('expectation', '')[:60]}"
                     )
-                    failure_groups.setdefault(reason, set()).add(r["name"])
+                    failure_groups.setdefault(reason, set()).add(
+                        ("sim", r["name"])
+                    )
 
     # Collect tool test failures
     if tool_results:
@@ -865,7 +871,7 @@ def generate_combined_html_report(
                 )
             else:
                 reason = errors[:80]
-            failure_groups.setdefault(reason, set()).add(r["name"])
+            failure_groups.setdefault(reason, set()).add(("tool", r["name"]))
 
     # Collect callback failures
     if callback_results:
@@ -874,7 +880,7 @@ def generate_combined_html_report(
                 continue
             reason = str(r.get("error", "Unknown error"))[:80]
             failure_groups.setdefault(f"Callback: {reason}", set()).add(
-                r["name"]
+                ("callback", r["name"])
             )
 
     # Prepare tools map for template if needed
@@ -1055,6 +1061,7 @@ def load_golden_results(
             turn_data = {
                 "index": i + 1,
                 "semantic_score": sem.get("score"),
+                "semantic_explanation": sem.get("explanation"),
                 "comparisons": [],
             }
             for o in turn.get("expectation_outcome", []):
@@ -1092,6 +1099,11 @@ def load_golden_results(
                         else "(missed)"
                     )
                     comp["actual_args"] = obs.get("args", {}) if obs else {}
+                    tir = o.get("toolInvocationResult", {})
+                    comp["tool_invocation_score"] = tir.get(
+                        "parameterCorrectnessScore"
+                    )
+                    comp["tool_invocation_explanation"] = tir.get("explanation")
                 elif "tool_response" in exp:
                     continue
                 elif "agent_transfer" in exp:
