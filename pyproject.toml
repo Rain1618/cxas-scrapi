@@ -54,6 +54,7 @@ dependencies = [
   "google-cloud-logging",
   "nest_asyncio",
   "jinja2",
+  "scikit-learn"
 ]
 
 [project.optional-dependencies]
