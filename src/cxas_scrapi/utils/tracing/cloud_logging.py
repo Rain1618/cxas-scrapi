@@ -87,9 +87,7 @@ class CloudLogsClient:
             return {}
         now_utc = datetime.datetime.now(datetime.timezone.utc)
         if start_time is None:
-            start_time = now_utc - datetime.timedelta(
-                hours=24
-            )
+            start_time = now_utc - datetime.timedelta(hours=24)
         if end_time is None:
             end_time = now_utc
 
