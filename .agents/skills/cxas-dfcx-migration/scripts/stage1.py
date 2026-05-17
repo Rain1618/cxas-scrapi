@@ -16,7 +16,7 @@ topology link, orphan cleanup, version checkpoint, bundle persist) to
 the service method.
 
 This script's only skill-specific responsibility is wiring the
-interactive grouping review TUI (`cxas_scrapi.cli.grouping_review`) into
+interactive grouping review TUI (`cxas_scrapi.migration.grouping_review`) into
 the service's ``grouping_callback``.
 """
 
@@ -37,7 +37,7 @@ import _phase_tracker  # noqa: E402
 import _prompts  # noqa: E402
 import _shared  # noqa: E402
 
-from cxas_scrapi.cli import grouping_review
+from cxas_scrapi.migration import grouping_review
 from cxas_scrapi.migration.service import MigrationService
 from cxas_scrapi.utils.gemini import GeminiGenerate
 
@@ -111,7 +111,7 @@ def _make_grouping_callback(yes: bool):
     Non-interactive (``--yes``) callers get auto-accept — the proposed
     groupings are returned unchanged. Interactive callers get the
     accept/re-propose/merge/split/rename TUI from
-    :mod:`cxas_scrapi.cli.grouping_review`.
+    :mod:`cxas_scrapi.migration.grouping_review`.
     """
     if yes:
         return None  # service auto-accepts when callback is None

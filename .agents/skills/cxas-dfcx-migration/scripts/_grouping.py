@@ -8,7 +8,7 @@
 
 """Skill-local re-export of the promoted grouping review TUI.
 
-The implementation lives in :mod:`cxas_scrapi.cli.grouping_review` so the
+The implementation lives in :mod:`cxas_scrapi.migration.grouping_review` so the
 same TUI is reachable from `MigrationCLI`, notebooks, and any other
 caller. Skill scripts continue to ``import _grouping`` so existing
 call sites don't need to change.
@@ -22,7 +22,7 @@ internally when ``grouping_callback`` is supplied.
 
 # Re-exports for skill consumers — explicit list so the public surface
 # stays scannable.
-from cxas_scrapi.cli.grouping_review import (  # noqa: F401
+from cxas_scrapi.migration.grouping_review import (  # noqa: F401
     interactive_review,
     render_diff,
     render_ir_tree,

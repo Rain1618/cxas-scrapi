@@ -247,7 +247,7 @@ class MigrationService:
                 accepted ``groupings`` dict (possibly edited) or ``None``
                 to abort the consolidation step. The Stage 1 variable
                 dedup still applies regardless. See
-                :func:`cxas_scrapi.cli.grouping_review.interactive_review`
+                :func:`cxas_scrapi.migration.grouping_review.interactive_review`
                 for the canonical TUI implementation.
             grouping_json_path: If set, load groupings from this JSON file
                 instead of calling Gemini.

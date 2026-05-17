@@ -6,7 +6,7 @@
 #
 #     https://www.apache.org/licenses/LICENSE-2.0
 
-"""Tests for :mod:`cxas_scrapi.cli.grouping_review`.
+"""Tests for :mod:`cxas_scrapi.migration.grouping_review`.
 
 The interactive InquirerPy loop is mocked at the prompt level; we
 verify the loop's response to each action (accept / quit / repropose),
@@ -23,7 +23,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from rich.console import Console as RichConsole
 
-from cxas_scrapi.cli import grouping_review
+from cxas_scrapi.migration import grouping_review
 from cxas_scrapi.migration.data_models import (
     IRAgent,
     IRMetadata,

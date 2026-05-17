@@ -231,13 +231,9 @@ def build_mermaid_tools_per_agent(
         agent_id = _mermaid_id("a", full_name)
         cls = "flow" if kind == "Flow" else "pb"
         if kind == "Flow":
-            lines.append(
-                f'  {agent_id}(["{_mermaid_label(display)}"]):::{cls}'
-            )
+            lines.append(f'  {agent_id}(["{_mermaid_label(display)}"]):::{cls}')
         else:
-            lines.append(
-                f'  {agent_id}["{_mermaid_label(display)}"]:::{cls}'
-            )
+            lines.append(f'  {agent_id}["{_mermaid_label(display)}"]:::{cls}')
         for tool in tools:
             tool_id = _mermaid_id("t", tool)
             if tool not in seen_tools:
@@ -376,9 +372,7 @@ def collect_resource_rows(
                 "id": _short(full),
                 "full_name": full,
                 "tools": list(pb.get("referencedTools", []) or []),
-                "playbooks": list(
-                    pb.get("referencedPlaybooks", []) or []
-                ),
+                "playbooks": list(pb.get("referencedPlaybooks", []) or []),
                 "outgoing": sorted(
                     analyzer.name_map.get(t, t)
                     for t in analyzer.graph.get(full, set())
@@ -518,9 +512,11 @@ def _render_tool_inner(tool_dict: dict[str, Any] | None, ref: str) -> str:
         or ""
     )
     if not schema:
-        toolset = tool_dict.get("openApiToolset") or tool_dict.get(
-            "open_api_toolset"
-        ) or {}
+        toolset = (
+            tool_dict.get("openApiToolset")
+            or tool_dict.get("open_api_toolset")
+            or {}
+        )
         schema = toolset.get("open_api_schema") or toolset.get("textSchema", "")
     if schema:
         parts.append(
@@ -610,9 +606,11 @@ def _render_param_defs_table(defs: list[dict[str, Any]]) -> str:
     rows = []
     for d in defs:
         name = d.get("name", "?")
-        type_ = d.get("typeSchema", {}).get("inlineSchema", {}).get(
-            "type"
-        ) or d.get("parameterType") or "?"
+        type_ = (
+            d.get("typeSchema", {}).get("inlineSchema", {}).get("type")
+            or d.get("parameterType")
+            or "?"
+        )
         desc = d.get("description") or ""
         rows.append(
             f"<tr><td><code>{html.escape(str(name))}</code></td>"
@@ -967,9 +965,7 @@ def _render_resource_details_collapsible(
                 content_section = _render_flow_content(wrapper)
             unit_label = "pages"
 
-        type_pill = (
-            "pill-flow" if r["type"] == "Flow" else "pill-playbook"
-        )
+        type_pill = "pill-flow" if r["type"] == "Flow" else "pill-playbook"
         out.append(
             "<details class='resource'>"
             "<summary>"

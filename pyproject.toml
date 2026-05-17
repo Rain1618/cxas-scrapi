@@ -54,7 +54,14 @@ dependencies = [
   "google-cloud-logging",
   "nest_asyncio",
   "jinja2",
-  "scikit-learn"
+  "scikit-learn",
+  # InquirerPy powers the cxas-agent-foundry configure wizard and the
+  # structural-consolidation grouping review TUI at
+  # cxas_scrapi.migration.grouping_review. Imported lazily — only
+  # callers that explicitly opt into the TUI pay the cost; the CLI's
+  # `cxas migrate dfcx` interactive dashboard and `cxas migrate dfcx-cxas`
+  # subcommands do NOT pull it in.
+  "InquirerPy",
 ]
 
 [project.optional-dependencies]
