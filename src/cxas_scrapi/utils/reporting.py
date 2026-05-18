@@ -1200,6 +1200,37 @@ def load_golden_results(
     return results
 
 
+def _load_sim_test_cases(yaml_path: str) -> list[dict]:
+    """Loads sim files and merges common params and expectations."""
+    with open(yaml_path) as f:
+        data = yaml.safe_load(f) or {}
+    if isinstance(data, list):
+        return data
+
+    common_params = data.get("common_session_parameters", {}) or {}
+    common_expectations = data.get("common_expectations", []) or []
+    cases = data.get("evals", [])
+    if not isinstance(cases, list):
+        return []
+
+    merged_cases = []
+    for c in cases:
+        if isinstance(c, dict):
+            case_copy = c.copy()
+            # Merge session parameters
+            case_params = case_copy.get("session_parameters", {}) or {}
+            merged = common_params.copy()
+            merged.update(case_params)
+            case_copy["session_parameters"] = merged
+
+            # Merge expectations
+            case_expectations = case_copy.get("expectations", []) or []
+            case_copy["expectations"] = common_expectations + case_expectations
+
+            merged_cases.append(case_copy)
+    return merged_cases
+
+
 def load_sim_results(json_path, sim_evals_yaml=None):
     """Load sim results from JSON file.
 
@@ -1220,10 +1251,12 @@ def load_sim_results(json_path, sim_evals_yaml=None):
     # Backfill session_parameters if missing
     if sim_evals_yaml:
         try:
-            with open(sim_evals_yaml) as f:
-                templates = {
-                    e["name"]: e for e in yaml.safe_load(f).get("evals", [])
-                }
+            eval_list = _load_sim_test_cases(sim_evals_yaml)
+            templates = {
+                e["name"]: e
+                for e in eval_list
+                if isinstance(e, dict) and "name" in e
+            }
             for r in results:
                 if "session_parameters" not in r and r.get("name") in templates:
                     r["session_parameters"] = templates[r["name"]].get(
@@ -1293,13 +1326,15 @@ def generate_combined_report_from_dir(
     runs=1,
     filter_files=None,
     filter_tags=None,
+    parallel=1,
+    golden_timeout=600,
 ):
     """Load results from directory and generate combined HTML report."""
     if not os.path.isdir(output_dir):
         raise ValueError(f"{output_dir} is not a directory.")
 
     if include is None or "all" in include:
-        include = ["sims", "goldens", "scenarios"]
+        include = ["sims", "goldens", "tools", "callbacks"]
 
     sim_results = []
     tool_results = []
@@ -1318,10 +1353,13 @@ def generate_combined_report_from_dir(
             runs=runs,
             filter_files=filter_files,
             filter_tags=filter_tags,
+            parallel=parallel,
+            golden_timeout=golden_timeout,
+            include=include,
         )
         sim_results = run_results["simulation"] if "sims" in include else []
         # Map tool results to expected format if needed
-        if "scenarios" in include:
+        if "tools" in include:
             for r in run_results["tool"]:
                 tool_results.append(
                     {
@@ -1334,7 +1372,8 @@ def generate_combined_report_from_dir(
                         "errors": r.get("errors", ""),
                     }
                 )
-            # Map callback results
+        # Map callback results
+        if "callbacks" in include:
             for r in run_results["callback"]:
                 callback_results.append(
                     {
@@ -1347,7 +1386,7 @@ def generate_combined_report_from_dir(
                         "error": r.get("error_message", ""),
                     }
                 )
-        golden_results = run_results["golden"]
+        golden_results = run_results["golden"] if "goldens" in include else []
     else:
         sim_files = []
         if "sims" in include:
@@ -1355,13 +1394,14 @@ def generate_combined_report_from_dir(
 
         tool_files = []
         callback_files = []
-        if "scenarios" in include:
+        if "tools" in include:
             tool_files = glob.glob(
                 os.path.join(output_dir, "tool_results*.csv")
             )
             tool_files.extend(
                 glob.glob(os.path.join(output_dir, "tool_results*.json"))
             )
+        if "callbacks" in include:
             callback_files = glob.glob(
                 os.path.join(output_dir, "callback_results*.csv")
             )
@@ -1455,147 +1495,159 @@ def run_all_evals(
     runs=1,
     filter_files=None,
     filter_tags=None,
+    parallel=1,
+    golden_timeout=600,
+    include=None,
 ):
-    """Runs all 4 types of evaluations and returns aggregated results."""
+    """Runs all 4 types of evaluations and returns aggregated results.
+
+    TODO(refactor): Move this high-level orchestration function into the core
+    `cxas_scrapi.evals.runner` module to decouple execution logic from pure HTML
+    report generation. During migration, refactor the goldens run trigger and
+    polling loops to directly reuse `cxas_scrapi.utils.eval_utils.EvalUtils`
+    (`create_and_run_evaluation_from_yaml` and `wait_for_run_and_get_results`).
+    """
     results = {"callback": [], "tool": [], "golden": [], "simulation": []}
+
+    include = include or ["sims", "goldens", "tools", "callbacks"]
 
     # 1. Platform goldens (Trigger async)
     evaluations_to_run = []
     run_name = None
-    if not goldens_dir:
-        goldens_dir = "evals/goldens/"
-    if app_name and os.path.exists(goldens_dir):
-        eval_client = Evaluations(app_name=app_name)
-        eval_utils = EvalUtils(app_name=app_name)
+    if "goldens" in include:
+        if not goldens_dir:
+            goldens_dir = "evals/goldens/"
+        if app_name and os.path.exists(goldens_dir):
+            eval_client = Evaluations(app_name=app_name)
+            eval_utils = EvalUtils(app_name=app_name)
 
-        if os.path.isdir(goldens_dir):
-            golden_files = glob.glob(os.path.join(goldens_dir, "*.yaml"))
-            print(f"Found {len(golden_files)} golden files in {goldens_dir}")
-        else:
-            golden_files = [goldens_dir]
-
-        if filter_files:
-            golden_files = [
-                f for f in golden_files if os.path.basename(f) in filter_files
-            ]
-
-        for gf in golden_files:
-            print(f"Pushing golden file {gf}")
-            evals = eval_utils.load_golden_evals_from_yaml(gf)
-            for eval_dict in evals:
-                if filter_tags:
-                    tags = eval_dict.get("tags", [])
-                    if not any(t in filter_tags for t in tags):
-                        continue
-                res = eval_client.update_evaluation(
-                    evaluation=eval_dict, app_name=app_name
+            if os.path.isdir(goldens_dir):
+                golden_files = glob.glob(os.path.join(goldens_dir, "*.yaml"))
+                print(
+                    f"Found {len(golden_files)} golden files in {goldens_dir}"
                 )
-                evaluations_to_run.append(res.name)
+            else:
+                golden_files = [goldens_dir]
 
-        if evaluations_to_run:
-            print(f"Running evaluations: {evaluations_to_run}")
-            operation = eval_client.run_evaluation(
-                evaluations=evaluations_to_run,
-                app_name=app_name,
-                modality=modality,
-                run_count=runs,
-            )
+            if filter_files:
+                golden_files = [
+                    f
+                    for f in golden_files
+                    if os.path.basename(f) in filter_files
+                ]
 
-            print(
-                "  Waiting for evaluation run name to appear in operation "
-                "metadata..."
-            )
-            for i in range(12):
-                time.sleep(10)
-                refreshed = operation._refresh(None)
-                meta = RunEvaluationOperationMetadata()
-                meta._pb.ParseFromString(refreshed.metadata.value)
-                if meta.evaluation_run:
-                    run_name = meta.evaluation_run
-                    print(f"  Run name resolved: {run_name}")
-                    break
-                print(f"  Waiting... ({(i + 1) * 10}s)")
+            for gf in golden_files:
+                print(f"Pushing golden file {gf}")
+                evals = eval_utils.load_golden_evals_from_yaml(gf)
+                for eval_dict in evals:
+                    if filter_tags:
+                        tags = eval_dict.get("tags", [])
+                        if not any(t in filter_tags for t in tags):
+                            continue
+                    res = eval_client.update_evaluation(
+                        evaluation=eval_dict, app_name=app_name
+                    )
+                    evaluations_to_run.append(res.name)
+
+            if evaluations_to_run:
+                print(f"Running evaluations: {evaluations_to_run}")
+                operation = eval_client.run_evaluation(
+                    evaluations=evaluations_to_run,
+                    app_name=app_name,
+                    modality=modality,
+                    run_count=runs,
+                )
+
+                print(
+                    "  Waiting for evaluation run name to appear in operation "
+                    "metadata..."
+                )
+                for i in range(12):
+                    time.sleep(10)
+                    refreshed = operation._refresh(None)
+                    meta = RunEvaluationOperationMetadata()
+                    meta._pb.ParseFromString(refreshed.metadata.value)
+                    if meta.evaluation_run:
+                        run_name = meta.evaluation_run
+                        print(f"  Run name resolved: {run_name}")
+                        break
+                    print(f"  Waiting... ({(i + 1) * 10}s)")
 
     # 2. Callback tests
-    if not app_dir and app_name:
-        app_dir = f"cxas_app/{app_name.split('/')[-1]}"
-    if app_dir and os.path.exists(app_dir):
-        print(f"Running callback tests in {app_dir}")
-        callback_evals = CallbackEvals()
-        df = callback_evals.test_all_callbacks_in_app_dir(app_dir=app_dir)
-        results["callback"] = df.to_dict(orient="records")
-        if output_dir:
-            df.to_csv(
-                os.path.join(output_dir, "callback_results.csv"), index=False
-            )
-
-    # 3. Tool tests
-    if not tool_test_file:
-        tool_test_file = "evals/tool_tests/"
-    if app_name and os.path.exists(tool_test_file):
-        tool_evals = ToolEvals(app_name=app_name)
-
-        if os.path.isdir(tool_test_file):
-            tool_files = glob.glob(os.path.join(tool_test_file, "*.yaml"))
-            print(
-                f"Found {len(tool_files)} tool test files in {tool_test_file}"
-            )
-        else:
-            tool_files = [tool_test_file]
-
-        if filter_files:
-            tool_files = [
-                f for f in tool_files if os.path.basename(f) in filter_files
-            ]
-
-        test_cases = []
-        for tf in tool_files:
-            print(f"Loading tool tests from {tf}")
-            cases = tool_evals.load_tool_test_cases_from_file(tf)
-            if filter_tags:
-                cases = [
-                    c
-                    for c in cases
-                    if any(t in filter_tags for t in c.get("tags", []))
-                ]
-            test_cases.extend(cases)
-
-        if test_cases:
-            print(f"Running {len(test_cases)} tool tests")
-            df = tool_evals.run_tool_tests(test_cases)
-            results["tool"] = df.to_dict(orient="records")
+    if "callbacks" in include:
+        if not app_dir and app_name:
+            app_dir = f"cxas_app/{app_name.split('/')[-1]}"
+        if app_dir and os.path.exists(app_dir):
+            print(f"Running callback tests in {app_dir}")
+            callback_evals = CallbackEvals()
+            df = callback_evals.test_all_callbacks_in_app_dir(app_dir=app_dir)
+            results["callback"] = df.to_dict(orient="records")
             if output_dir:
                 df.to_csv(
-                    os.path.join(output_dir, "tool_results.csv"), index=False
+                    os.path.join(output_dir, "callback_results.csv"),
+                    index=False,
                 )
 
-    # 4. Platform goldens (Wait for results)
-    if run_name:
-        print(f"Waiting for evaluation run {run_name} to complete...")
-        utils = EvalUtils(app_name=app_name)
-        utils.wait_for_run_and_get_results(
-            run_name=run_name, timeout_seconds=600
-        )
-        results["golden"] = load_golden_results(run_name, app_name)
+    # 3. Tool tests
+    if "tools" in include:
+        if not tool_test_file:
+            tool_test_file = "evals/tool_tests/"
+        if app_name and os.path.exists(tool_test_file):
+            tool_evals = ToolEvals(app_name=app_name)
 
-    # 5. Local simulations
-    if not simulation_dir:
-        simulation_dir = "evals/simulations/"
-    if app_name and os.path.exists(simulation_dir):
-        sim_files = glob.glob(os.path.join(simulation_dir, "*.yaml"))
-        if filter_files:
-            sim_files = [
-                f for f in sim_files if os.path.basename(f) in filter_files
-            ]
+            if os.path.isdir(tool_test_file):
+                tool_files = glob.glob(os.path.join(tool_test_file, "*.yaml"))
+                print(
+                    f"Found {len(tool_files)} tool test files "
+                    f"in {tool_test_file}"
+                )
+            else:
+                tool_files = [tool_test_file]
 
-        if sim_files:
-            print(f"Running {len(sim_files)} simulations")
-            sim_evals = SimulationEvals(app_name=app_name)
+            if filter_files:
+                tool_files = [
+                    f for f in tool_files if os.path.basename(f) in filter_files
+                ]
+
             test_cases = []
-            for sf in sim_files:
-                with open(sf) as f:
-                    cases = yaml.safe_load(f)
-                    if isinstance(cases, list):
+            for tf in tool_files:
+                print(f"Loading tool tests from {tf}")
+                cases = tool_evals.load_tool_test_cases_from_file(tf)
+                if filter_tags:
+                    cases = [
+                        c
+                        for c in cases
+                        if any(t in filter_tags for t in c.get("tags", []))
+                    ]
+                test_cases.extend(cases)
+
+            if test_cases:
+                print(f"Running {len(test_cases)} tool tests")
+                df = tool_evals.run_tool_tests(test_cases)
+                results["tool"] = df.to_dict(orient="records")
+                if output_dir:
+                    df.to_csv(
+                        os.path.join(output_dir, "tool_results.csv"),
+                        index=False,
+                    )
+
+    # 4. Local simulations
+    if "sims" in include:
+        if not simulation_dir:
+            simulation_dir = "evals/simulations/"
+        if app_name and os.path.exists(simulation_dir):
+            sim_files = glob.glob(os.path.join(simulation_dir, "*.yaml"))
+            if filter_files:
+                sim_files = [
+                    f for f in sim_files if os.path.basename(f) in filter_files
+                ]
+
+            if sim_files:
+                sim_evals = SimulationEvals(app_name=app_name)
+                test_cases = []
+                for sf in sim_files:
+                    cases = _load_sim_test_cases(sf)
+                    if cases:
                         if filter_tags:
                             cases = [
                                 c
@@ -1605,14 +1657,30 @@ def run_all_evals(
                                 )
                             ]
                         test_cases.extend(cases)
-            if test_cases:
-                sim_results = sim_evals.run_simulations(
-                    test_cases, runs=runs, modality=modality
-                )
-                results["simulation"] = sim_results
-                if output_dir:
-                    save_path = os.path.join(output_dir, "sim_results.json")
-                    with open(save_path, "w") as f:
-                        json.dump(sim_results, f, indent=2)
+                if test_cases:
+                    print(
+                        f"Running {len(test_cases)} simulations across "
+                        f"{len(sim_files)} files"
+                    )
+                    sim_results = sim_evals.run_simulations(
+                        test_cases,
+                        runs=runs,
+                        parallel=parallel,
+                        modality=modality,
+                    )
+                    results["simulation"] = sim_results
+                    if output_dir:
+                        save_path = os.path.join(output_dir, "sim_results.json")
+                        with open(save_path, "w") as f:
+                            json.dump(sim_results, f, indent=2)
+
+    # 5. Platform goldens (Wait for results)
+    if "goldens" in include and run_name:
+        print(f"Waiting for evaluation run {run_name} to complete...")
+        utils = EvalUtils(app_name=app_name)
+        utils.wait_for_run_and_get_results(
+            run_name=run_name, timeout_seconds=golden_timeout
+        )
+        results["golden"] = load_golden_results(run_name, app_name)
 
     return results
