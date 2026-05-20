@@ -39,7 +39,12 @@ from cxas_scrapi.cli.app import (
 )
 from cxas_scrapi.cli.create_local import handle_local_create
 from cxas_scrapi.cli.insights_cli import populate_insights_parser
-from cxas_scrapi.cli.migration_cli import MigrationCLI
+from cxas_scrapi.cli.migration_cli import (
+    MigrationCLI,
+)
+from cxas_scrapi.cli.migration_cli import (
+    register as register_dfcx_cxas_subparsers,
+)
 from cxas_scrapi.cli.trace_cli import register as register_trace_subparser
 from cxas_scrapi.core.apps import Apps
 from cxas_scrapi.core.evaluations import Evaluations, ExportFormat
@@ -484,6 +489,9 @@ def combined_evals_report_cmd(args: argparse.Namespace) -> None:
         if args.simulation_dir == "evals/simulations/":
             args.simulation_dir = os.path.join(args.input_dir, "simulations/")
 
+    sim_parallel = getattr(args, "sim_parallel", 5)
+    golden_timeout = getattr(args, "golden_timeout", 600)
+
     generate_combined_report_from_dir(
         output_dir=args.output_dir,
         golden_run=args.golden_run,
@@ -500,6 +508,8 @@ def combined_evals_report_cmd(args: argparse.Namespace) -> None:
         runs=args.runs,
         filter_files=filter_files_list,
         filter_tags=filter_tags_list,
+        parallel=sim_parallel,
+        golden_timeout=golden_timeout,
     )
     print(f"Combined report generated at {output_path}")
 
@@ -858,8 +868,10 @@ def get_parser() -> argparse.ArgumentParser:
         help="Default name for the target agent.",
     )
     parser_migrate_dfcx.set_defaults(func=run_migration_dashboard)
-    # TODO: Add flags for non-interactive mode (e.g., --headless, --config)
-    # to bypass the interactive dashboard.
+
+    # Register the dfcx-cxas subcommand tree (run / stage1 / stage2 /
+    # stage3 / resume). Lives in its own module to keep main.py lean.
+    register_dfcx_cxas_subparsers(migrate_subparsers)
 
     # Parser for 'init-github-action'
     parser_init_gh = subparsers.add_parser(
@@ -1020,6 +1032,14 @@ def get_parser() -> argparse.ArgumentParser:
         help="Number of runs per golden and simulation test case.",
     )
     parser_report.add_argument(
+        "--sim-parallel",
+        type=int,
+        default=5,
+        help=(
+            "Number of parallel worker sessions for simulations. Defaults to 5."
+        ),
+    )
+    parser_report.add_argument(
         "--modality",
         choices=["text", "audio"],
         default="text",
@@ -1027,10 +1047,10 @@ def get_parser() -> argparse.ArgumentParser:
     )
     parser_report.add_argument(
         "--include",
-        default="sims,goldens,scenarios",
+        default="sims,goldens,tools,callbacks",
         help=(
             "Categories to include (comma-separated, "
-            "default: sims,goldens,scenarios)."
+            "default: sims,goldens,tools,callbacks)."
         ),
     )
     parser_report.add_argument(
@@ -1040,6 +1060,12 @@ def get_parser() -> argparse.ArgumentParser:
     parser_report.add_argument(
         "--filter-tags",
         help="Optional: Comma-separated list of tags to include.",
+    )
+    parser_report.add_argument(
+        "--golden-timeout",
+        type=int,
+        default=600,
+        help="Timeout in seconds waiting for remote goldens. Defaults to 600.",
     )
     parser_report.set_defaults(func=combined_evals_report_cmd)
 

@@ -14,7 +14,7 @@
 
 """Tool lint rules (T001-T008).
 
-Validates agent tool Python files against GECX conventions.
+Validates agent tool Python files against CXAS conventions.
 """
 
 import json

@@ -83,6 +83,8 @@ def test_combined_evals_report_cmd(tmp_path):
             runs=1,
             filter_files=[],
             filter_tags=[],
+            parallel=5,
+            golden_timeout=600,
         )
 
 
@@ -131,4 +133,6 @@ def test_combined_evals_report_cmd_with_modality_and_runs(tmp_path):
             runs=5,
             filter_files=[],
             filter_tags=[],
+            parallel=5,
+            golden_timeout=600,
         )

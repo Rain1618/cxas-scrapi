@@ -15,6 +15,7 @@
 import asyncio
 import logging
 import random
+import threading
 from typing import Any, Optional
 
 from google import genai
@@ -49,13 +50,23 @@ class GeminiGenerate:
             f"Initializing GeminiGenerate with model: {self.model_name} "
             f"(Max Concurrency: {max_concurrent_requests})"
         )
-        self.client = genai.Client(
-            vertexai=True,
-            project=project_id,
-            location=location,
-            credentials=credentials,
-        )
+        self.project_id = project_id
+        self.location = location
+        self.credentials = credentials
+        self._thread_local = threading.local()
         self.semaphore = asyncio.Semaphore(max_concurrent_requests)
+
+    @property
+    def client(self) -> genai.Client:
+        """Get or create a thread-local genai.Client instance."""
+        if not hasattr(self._thread_local, "client"):
+            self._thread_local.client = genai.Client(
+                vertexai=True,
+                project=self.project_id,
+                location=self.location,
+                credentials=self.credentials,
+            )
+        return self._thread_local.client
 
     def generate(
         self,
@@ -264,3 +275,27 @@ class GeminiGenerate:
             await asyncio.sleep(sleep_time)
 
         return None
+
+    def generate_embeddings(
+        self, contents: list[str], model_name: str = "gemini-embedding-001"
+    ) -> list[list[float] | None]:
+        """Generates embeddings using the Gemini model.
+
+        Args:
+            contents: The list of texts to be embedded.
+            model_name: Optional override for the model name.
+
+        Returns:
+            List of the generated embeddings.
+        """
+        target_model = model_name
+
+        try:
+            response = self.client.models.embed_content(
+                model=target_model, contents=contents
+            )
+            if response.embeddings is not None:
+                return [embedding.values for embedding in response.embeddings]
+        except Exception as e:
+            logger.error(f"Gemini embedding generation failed: {e}")
+        return []

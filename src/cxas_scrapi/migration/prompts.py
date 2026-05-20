@@ -277,6 +277,29 @@ Architect.
     ### INPUT 3: Available Backend OpenAPI Toolsets (Webhooks)
     {available_backend_toolsets}
 
+    ### INPUT 4: Available Tools — EXACT IDs the downstream prompt may reference
+
+    The downstream XML synthesis step (Step 2B) will be told it may only
+    reference tools from this list, by their EXACT ID. When designing
+    ``required_tools`` below, prefer tool IDs that already exist in this
+    list. If you must propose a NEW tool (e.g. a new Python wrapper), name
+    it consistently with the existing IDs — do NOT add cosmetic suffixes
+    like ``_wrapper`` or ``_tool`` to IDs that are already in the list.
+
+    {available_tools}
+
+    ### INPUT 5: Available Sibling Agents — valid {{@AGENT: …}} transfer targets
+
+    The agent you are designing ("{self_group}") is one of several
+    consolidated agents in this CXAS app. Below is the full inventory of
+    sibling consolidated agents, with the original source agents each one
+    absorbed. When the blueprint's ``exit_routes`` or transitions need to
+    transfer control to another agent, use the EXACT consolidated group
+    name from this list — NOT an original source-agent display name and
+    NOT an invented label like ``MainIntentRouter`` or ``LiveAgentTarget``.
+
+    {available_groups}
+
     ### REQUIRED OUTPUT FORMAT
     Output strictly in the following JSON format schema:
 
@@ -344,16 +367,40 @@ and CXAS/Polysynth Architect.
 
     ### CRITICAL SYNTAX RULES (NON-NEGOTIABLE)
     1. **Tool Calling**: Whenever the agent must execute a tool, you MUST use
-       the exact syntax: {@TOOL: <exact tool name here>}.
-       - You may only use tools explicitly provided in the Architecture
-         Blueprint.
+       the exact syntax: {@TOOL: <exact tool ID from the AVAILABLE TOOLS list>}.
+       - **The tool ID must appear VERBATIM in the AVAILABLE TOOLS list
+         below.** Do NOT paraphrase, do NOT pluralize/singularize, and
+         **do NOT add cosmetic suffixes like ``_wrapper`` or ``_tool``**
+         to an ID that already exists. If the list has ``authenticate_user``,
+         write ``{@TOOL: authenticate_user}`` — NOT ``authenticate_user_wrapper``.
+       - You may only use tool IDs from the AVAILABLE TOOLS list, the
+         ``end_session`` sentinel, OR tools explicitly added to the
+         ``required_tools`` array in the Architecture Blueprint (these
+         will be implemented downstream).
+       - If you need an operation that isn't available, define a
+         ``<transition>`` to an error state rather than inventing a tool
+         name.
        - If agent_metadata.exit_routes in the Architecture Blueprint includes
          END_SESSION, use {@TOOL: end_session}. It accepts the following
          arguments: reason (str), session_escalated (bool), params.
+       - **NEVER emit a placeholder.** Do NOT write ``{@TOOL: ...}``,
+         ``{@TOOL: …}``, ``{@TOOL: <tool_name>}``, or ``{@TOOL: TODO}``.
+         If you don't know which tool to call, omit the directive and
+         describe the step in natural language instead.
        - Describe required parameters in natural language immediately following
          the tool call.
     2. **Agent Routing**: If the agent must transfer control to another
-       sub-agent or flow, use the syntax: {@AGENT: <exact agent name here>}.
+       sub-agent, use the syntax: {@AGENT: <exact consolidated group name>}.
+       - The name MUST appear VERBATIM in the AVAILABLE SIBLING AGENTS
+         list below. Do NOT use a source-agent display name (those have
+         been absorbed into a consolidated group); use the consolidated
+         GROUP name instead.
+       - Do NOT invent names like ``MainIntentRouter``, ``LiveAgent``,
+         ``AnythingElseTarget``, or ``<X>Target`` / ``<X>Agent`` /
+         ``<X>Handler`` variants — only the exact group names from the
+         AVAILABLE SIBLING AGENTS list are valid.
+       - If no listed agent is a fit, omit the transfer and instead
+         define a ``<transition>`` to an internal error state.
     3. **Variable Referencing**: Whenever referencing or checking session
        state, context, or parameters, use the syntax:
        {<exact variable name here>}.
@@ -393,6 +440,31 @@ and CXAS/Polysynth Architect.
     This is the exact state-machine logic, pages, routes, and fulfillments of
     the original DFCX Flow. Reconstruct this logic using strict <state> and <transitions>.
     {resource_visualization}
+
+    ### INPUT 3: AVAILABLE TOOLS — exact IDs you may reference in {{@TOOL: …}}
+
+    Every ``{{@TOOL: X}}`` directive you emit MUST use a tool ID that
+    appears in this list verbatim (or ``end_session``, or a tool name
+    listed in the Architecture Blueprint's ``required_tools`` array).
+    Do NOT add suffixes like ``_wrapper`` or ``_tool`` to an ID that is
+    already present. Do NOT pluralize / singularize. Do NOT invent a tool
+    that does not appear anywhere in this list or the blueprint —
+    instead define an error-state transition. NEVER emit ``{{@TOOL: ...}}``
+    or any placeholder syntax.
+
+    {available_tools}
+
+    ### INPUT 4: AVAILABLE SIBLING AGENTS — exact group names for {{@AGENT: …}}
+
+    You are designing the consolidated agent "{self_group}". Any
+    ``{{@AGENT: X}}`` transfer directive you emit MUST use a group name
+    from this list verbatim. Do NOT use original source-agent display
+    names (those have been absorbed into one of these groups). Do NOT
+    invent ``Router`` / ``Target`` / ``Handler`` variants. If you intend
+    to "end here" or "complete the subtask", simply omit the transfer
+    and let the state machine return to its parent.
+
+    {available_groups}
 
     ### REQUIRED OUTPUT FORMAT
     Strictly adhere to the following XML schema. Fill in the content based

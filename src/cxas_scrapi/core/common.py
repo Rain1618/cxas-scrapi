@@ -107,6 +107,20 @@ class Common:
 
         self.client_info = ClientInfo(user_agent=self.user_agent)
 
+    @property
+    def token(self) -> Optional[str]:
+        if (
+            hasattr(self, "creds")
+            and self.creds
+            and hasattr(self.creds, "token")
+        ):
+            return self.creds.token
+        return getattr(self, "_token", None)
+
+    @token.setter
+    def token(self, value: Optional[str]):
+        self._token = value
+
     @staticmethod
     def empty_to_dict(v: Any) -> Any:
         return v if v is not None else {}

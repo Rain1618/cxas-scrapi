@@ -14,7 +14,7 @@
 
 """Instruction lint rules (I001-I014).
 
-Validates agent instruction files against GECX design guide best practices.
+Validates agent instruction files against CXAS design guide best practices.
 """
 
 import json
