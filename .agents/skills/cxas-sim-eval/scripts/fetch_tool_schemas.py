@@ -21,6 +21,8 @@ from google.protobuf.json_format import MessageToDict
 
 from cxas_scrapi import Tools
 
+USER_AGENT_EXTENSION = "skill/cxas-sim-eval/fetch_tool_schemas"
+
 def main():
     parser = argparse.ArgumentParser(description="Fetch tool schemas for a given app.")
     parser.add_argument("--app-name", required=True, help="The full resource name of the app (e.g., projects/.../locations/.../apps/...)")
@@ -34,7 +36,7 @@ def main():
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
         
-    tools_client = Tools(app_name)
+    tools_client = Tools(app_name, user_agent_extension=USER_AGENT_EXTENSION)
     print(f"Fetching tools map for app: {app_name}")
     
     # Get mapping of tool_name -> tool_display_name

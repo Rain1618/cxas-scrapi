@@ -34,6 +34,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from config import load_app_name
 
+USER_AGENT_EXTENSION = "skill/cxas-agent-foundry/triage-results"
+
 
 # --- Failure categories ---
 
@@ -1014,7 +1016,7 @@ def main():
     app_name = load_app_name()
 
     from cxas_scrapi.core.evaluations import Evaluations
-    client = Evaluations(app_name=app_name)
+    client = Evaluations(app_name=app_name, user_agent_extension=USER_AGENT_EXTENSION)
 
     # Build eval name lookup (resource -> display_name)
     try:

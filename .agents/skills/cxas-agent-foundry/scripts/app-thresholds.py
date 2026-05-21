@@ -36,11 +36,13 @@ from config import load_app_name, load_config, get_project_path
 HALLUCINATION_VALUES = {"unspecified": 0, "disabled": 1, "enabled_strict": 2, "enabled": 2}
 EXTRA_TOOL_VALUES = {"allow": 1, "deny": 2}
 
+USER_AGENT_EXTENSION = "skill/cxas-agent-foundry/app-thresholds"
+
 
 def get_app(project, location):
     """Get the Apps client."""
     from cxas_scrapi.core.apps import Apps
-    return Apps(project_id=project, location=location)
+    return Apps(project_id=project, location=location, user_agent_extension=USER_AGENT_EXTENSION)
 
 
 def cmd_show(args):
@@ -49,7 +51,7 @@ def cmd_show(args):
 
     from cxas_scrapi.core.evaluations import Evaluations
     try:
-        client = Evaluations(app_name=app_name)
+        client = Evaluations(app_name=app_name, user_agent_extension=USER_AGENT_EXTENSION)
         client.get_evaluation_thresholds(print_console=True)
     except Exception as e:
         print(f"Error: Failed to get thresholds: {e}")

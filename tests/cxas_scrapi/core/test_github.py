@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import argparse
+import subprocess
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -20,8 +21,42 @@ import pytest
 from cxas_scrapi.core.github import (
     _auto_setup_wif,
     _get_github_details,
+    _repo_relative_path,
     init_github_action,
 )
+
+
+def _init_github_action_args(app_dir: str) -> argparse.Namespace:
+    return argparse.Namespace(
+        agent_name="testagent",
+        app_id="projects/my-project/locations/us/apps/test-app",
+        app_name="projects/my-project/locations/us/apps/test-app",
+        app_dir=app_dir,
+        output=None,
+        auth_method="wif",
+        workload_identity_provider=(
+            "projects/123/locations/global/workloadIdentityPools/pool/"
+            "providers/provider"
+        ),
+        service_account="github-actions-sa@my-project.iam.gserviceaccount.com",
+        project_id="my-project",
+        location="us",
+        branch="main",
+        no_cleanup=False,
+        install_hook=False,
+        auto_create_wif=False,
+        github_repo="owner/repo",
+    )
+
+
+def _init_git_repo(path):
+    subprocess.run(
+        ["git", "init"],
+        cwd=path,
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
 
 
 def test_get_github_details_https():
@@ -46,6 +81,27 @@ def test_get_github_details_fail():
         owner, repo = _get_github_details("/tmp")
         assert owner is None
         assert repo is None
+
+
+def test_repo_relative_path_preserves_nested_app_dir(tmp_path):
+    repo_root = tmp_path / "repo"
+    app_dir = repo_root / "customer-service-agent/cxas_app/App"
+    app_dir.mkdir(parents=True)
+
+    assert (
+        _repo_relative_path(str(app_dir), str(repo_root))
+        == "customer-service-agent/cxas_app/App"
+    )
+
+
+def test_repo_relative_path_rejects_paths_outside_repo(tmp_path):
+    repo_root = tmp_path / "repo"
+    app_dir = tmp_path / "app"
+    repo_root.mkdir()
+    app_dir.mkdir()
+
+    with pytest.raises(ValueError, match="inside the Git repository"):
+        _repo_relative_path(str(app_dir), str(repo_root))
 
 
 def test_auto_setup_wif_success():
@@ -126,3 +182,41 @@ def test_init_github_action_missing_wif():
         ),
     ):
         init_github_action(args)
+
+
+def test_init_github_action_preserves_nested_app_dir(tmp_path, monkeypatch):
+    repo_root = tmp_path / "repo"
+    app_dir = (
+        repo_root / "customer-service-agent/cxas_app/Customer_Service_Agent"
+    )
+    app_dir.mkdir(parents=True)
+    _init_git_repo(repo_root)
+    monkeypatch.chdir(repo_root)
+
+    args = _init_github_action_args(
+        "customer-service-agent/cxas_app/Customer_Service_Agent"
+    )
+    init_github_action(args)
+
+    workflow_path = repo_root / ".github/workflows/ci_test_testagent.yml"
+    deploy_path = repo_root / ".github/workflows/deploy_testagent.yml"
+    cleanup_path = repo_root / ".github/workflows/cleanup_testagent.yml"
+
+    ci_workflow = workflow_path.read_text()
+    deploy_workflow = deploy_path.read_text()
+    cleanup_workflow = cleanup_path.read_text()
+    workflows = "\n".join([ci_workflow, deploy_workflow, cleanup_workflow])
+
+    expected_app_dir = "customer-service-agent/cxas_app/Customer_Service_Agent"
+
+    assert f"context: {expected_app_dir}" in ci_workflow
+    assert f"ci-test --app-dir {expected_app_dir}" in ci_workflow
+    assert f"cxas push --app-dir {expected_app_dir}" in deploy_workflow
+    assert f"'{expected_app_dir}/**/*.py'" in workflows
+    assert f"'{expected_app_dir}/**/*.txt'" in workflows
+    assert "--project_id" not in workflows
+    assert "--app_id" not in workflows
+    assert "--display_name" not in workflows
+
+    assert (app_dir / "Dockerfile").exists()
+    assert (app_dir / "requirements.txt").exists()

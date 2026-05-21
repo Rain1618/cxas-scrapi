@@ -27,6 +27,7 @@ from google.protobuf import field_mask_pb2
 from google.protobuf.json_format import MessageToDict
 
 from cxas_scrapi.core.apps import Apps
+from cxas_scrapi.core.common import DEFAULT_API_ENDPOINT
 from cxas_scrapi.core.variables import Variables
 
 
@@ -59,13 +60,11 @@ class Tools(Apps):
         self.app_id = app_name.rsplit("/", maxsplit=1)[-1]
         self.resource_type = "tools"
         self.client = AgentServiceClient(
-            credentials=self.creds,
-            client_options=self.client_options,
+            transport=self.get_grpc_transport(AgentServiceClient),
             client_info=self.client_info,
         )
         self.tool_client = ToolServiceClient(
-            credentials=self.creds,
-            client_options=self.client_options,
+            transport=self.get_grpc_transport(ToolServiceClient),
             client_info=self.client_info,
         )
         self.var_client = Variables(
@@ -334,14 +333,15 @@ class Tools(Apps):
         Returns:
             The tool execution response (JSON or Object).
         """
-        # Use HTTP REST request instead of SDK because the current SDK version
-        # is missing the 'variables' field in ExecuteToolRequest proto
-        url = f"https://ces.googleapis.com/v1beta/{self.app_name}:executeTool"
+        url = (
+            f"https://{DEFAULT_API_ENDPOINT}/v1beta/{self.app_name}:executeTool"
+        )
 
         headers = {
             "Authorization": f"Bearer {self.creds.token}",
             "Content-Type": "application/json",
             "x-goog-user-project": self.project_id,
+            "User-Agent": self.user_agent,
         }
 
         payload = {}

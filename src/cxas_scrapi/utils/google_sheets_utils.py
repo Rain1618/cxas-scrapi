@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional
 
 import gspread
 import pandas as pd
+from google.auth.transport.requests import AuthorizedSession
 from gspread_dataframe import set_with_dataframe
 
 from cxas_scrapi.core.common import Common
@@ -54,7 +55,9 @@ class GoogleSheetsUtils(Common):
         )
 
         try:
-            self.sheets_client = gspread.authorize(self.creds)
+            session = AuthorizedSession(self.creds)
+            session.headers.update({"User-Agent": self.user_agent})
+            self.sheets_client = gspread.authorize(None, session=session)
             # Pre-flight check for local ADC auth
             if "google.colab" not in sys.modules:
                 self._preflight_api_checks()

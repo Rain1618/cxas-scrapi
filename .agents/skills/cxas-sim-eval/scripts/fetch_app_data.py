@@ -20,6 +20,8 @@ import shutil
 from cxas_scrapi import Evaluations, Agents, Apps
 from google.protobuf.json_format import MessageToDict
 
+USER_AGENT_EXTENSION = "skill/cxas-sim-eval/fetch_app_data"
+
 def main():
     parser = argparse.ArgumentParser(description="Fetch evaluations and agent tools from CES API.")
     parser.add_argument("--app-name", required=True, help="Full resource name of the app, e.g., projects/.../locations/.../apps/...")
@@ -43,8 +45,8 @@ def main():
     location = parts[3]
     
     # Initialize clients
-    agents_client = Agents(app_name=app_name)
-    apps_client = Apps(project_id=project_id, location=location)
+    agents_client = Agents(app_name=app_name, user_agent_extension=USER_AGENT_EXTENSION)
+    apps_client = Apps(project_id=project_id, location=location, user_agent_extension=USER_AGENT_EXTENSION)
     
     # 1. Fetch Agent Tools
     print(f"Fetching agent tools for app: {app_name}...")

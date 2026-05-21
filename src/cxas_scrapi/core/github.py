@@ -32,6 +32,8 @@ on:
       - '{path_filter}/*.yaml'
       - '{path_filter}/*.yml'
       - '{path_filter}/*.json'
+      - '{path_filter}/*.py'
+      - '{path_filter}/*.txt'
   workflow_call:
 
 env:
@@ -106,6 +108,8 @@ on:
       - '{path_filter}/*.yaml'
       - '{path_filter}/*.yml'
       - '{path_filter}/*.json'
+      - '{path_filter}/*.py'
+      - '{path_filter}/*.txt'
 
 env:
   PROJECT_ID: "{project_id}"
@@ -138,7 +142,12 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.10'
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
+        with:
+          enable-cache: true
 
 {auth_step}
 
@@ -146,10 +155,9 @@ jobs:
 
       - name: Install cxas-scrapi CLI
         run: |
-          python -m pip install --upgrade pip
           wget https://storage.googleapis.com/gassets-api-ai/ces-client-libraries/v1beta/ces-v1beta-py.tar
-          pip install ces-v1beta-py.tar --quiet
-          pip install cxas-scrapi
+          uv pip install ces-v1beta-py.tar --quiet
+          uv pip install cxas-scrapi
 
       - name: Deploy to CX Agent Studio
         run: |
@@ -166,6 +174,8 @@ on:
       - '{path_filter}/*.yaml'
       - '{path_filter}/*.yml'
       - '{path_filter}/*.json'
+      - '{path_filter}/*.py'
+      - '{path_filter}/*.txt'
 
 env:
   PROJECT_ID: "{project_id}"
@@ -190,7 +200,12 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.10'
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
+        with:
+          enable-cache: true
 
 {auth_step}
 
@@ -198,10 +213,9 @@ jobs:
 
       - name: Install cxas-scrapi CLI
         run: |
-          python -m pip install --upgrade pip
           wget https://storage.googleapis.com/gassets-api-ai/ces-client-libraries/v1beta/ces-v1beta-py.tar
-          pip install ces-v1beta-py.tar --quiet
-          pip install cxas-scrapi
+          uv pip install ces-v1beta-py.tar --quiet
+          uv pip install cxas-scrapi
 
       - name: Run Cleanup
         run: |
@@ -213,8 +227,12 @@ jobs:
 
 
 DOCKERFILE_TEMPLATE = """# Use an official Python runtime as a parent image
-FROM python:3.11-slim
+FROM python:3.10-slim
 
+
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvbin --link
+ENV PATH="/uvbin:${PATH}"
 
 # Set the working directory to /app
 WORKDIR /app
@@ -226,15 +244,15 @@ RUN apt-get update && apt-get install -y git wget && rm -rf /var/lib/apt/lists/*
 RUN URL="https://storage.googleapis.com/gassets-api-ai/" && \\
     URL="${URL}ces-client-libraries/v1beta/ces-v1beta-py.tar" && \\
     wget $URL && \\
-    pip install ces-v1beta-py.tar --quiet && \\
+    uv pip install --system ces-v1beta-py.tar --quiet && \\
     rm ces-v1beta-py.tar
 
 # Copy requirements first to leverage Docker cache
 COPY requirements.txt .
 
 # Install dependencies and local CLI wheel
-RUN pip install --no-cache-dir -r requirements.txt && \
-    pip install cxas-scrapi
+RUN uv pip install --system --no-cache-dir -r requirements.txt && \
+    uv pip install --system cxas-scrapi
 
 # Copy the agent code into the container
 COPY . .
@@ -269,6 +287,20 @@ def _get_github_details(agent_dir: str) -> tuple[str | None, str | None]:
     except Exception:
         pass
     return None, None
+
+
+def _repo_relative_path(path: str, git_root: str) -> str:
+    """Returns a POSIX-style path to path relative to the Git repo root."""
+    abs_path = os.path.abspath(path)
+    abs_git_root = os.path.abspath(git_root)
+
+    if os.path.commonpath([abs_git_root, abs_path]) != abs_git_root:
+        raise ValueError("The app directory must be inside the Git repository.")
+
+    rel_path = os.path.relpath(abs_path, abs_git_root)
+    if rel_path == ".":
+        return "."
+    return rel_path.replace(os.sep, "/")
 
 
 def _auto_setup_wif(
@@ -563,11 +595,10 @@ def init_github_action(args: argparse.Namespace) -> None:
             "or use --auto-create-wif to let the CLI generate them for you."
         )
 
-    # Generate the path string. If they used an absolute path like
-    # `/Users/.../pilot`, just use `pilot/**`
-    agent_basename = os.path.basename(agent_dir.rstrip(os.sep))
-    path_filter = f"{agent_basename}/**" if agent_dir != "." else "**"
-    github_context_path = agent_basename if agent_dir != "." else "."
+    github_context_path = _repo_relative_path(agent_dir, git_root)
+    path_filter = (
+        "**" if github_context_path == "." else f"{github_context_path}/**"
+    )
 
     # Configure auth blocks
     auth_env = (

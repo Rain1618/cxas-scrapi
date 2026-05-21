@@ -39,6 +39,8 @@ from InquirerPy.base.control import Choice
 from InquirerPy.utils import get_style
 from InquirerPy.validator import EmptyInputValidator
 
+USER_AGENT_EXTENSION = "skill/cxas-agent-foundry/configure"
+
 console = Console()
 
 # Keybinding: map Escape to skip/cancel so fuzzy prompts can be aborted.
@@ -112,7 +114,7 @@ def fetch_cxas_apps(project_id, location):
     try:
         from cxas_scrapi.core.apps import Apps
 
-        apps_client = Apps(project_id=project_id, location=location)
+        apps_client = Apps(project_id=project_id, location=location, user_agent_extension=USER_AGENT_EXTENSION)
         apps_list = apps_client.list_apps()
         results = []
         for app in apps_list:
@@ -247,7 +249,7 @@ def _create_new_app(project_id, location):
     try:
         from cxas_scrapi.core.apps import Apps
 
-        apps_client = Apps(project_id=project_id, location=location)
+        apps_client = Apps(project_id=project_id, location=location, user_agent_extension=USER_AGENT_EXTENSION)
         app = apps_client.create_app(
             app_id=app_id_slug,
             display_name=display_name,
@@ -656,7 +658,7 @@ def main_non_interactive(args):
         console.print(f"  [dim]Creating app '{app_name}' in {project_id}/{location}...[/dim]")
         try:
             from cxas_scrapi.core.apps import Apps
-            apps_client = Apps(project_id=project_id, location=location)
+            apps_client = Apps(project_id=project_id, location=location, user_agent_extension=USER_AGENT_EXTENSION)
             app = apps_client.create_app(
                 app_id=str(uuid.uuid4()),
                 display_name=app_name,

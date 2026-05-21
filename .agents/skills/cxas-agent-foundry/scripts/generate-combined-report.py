@@ -16,7 +16,8 @@
 """Generate a combined HTML report for golden + simulation eval results.
 
 Usage:
-  python scripts/generate-combined-report.py --golden-run <RUN_ID> --sim-results <JSON_PATH>
+  python scripts/generate-combined-report.py --golden-run <RUN_ID>
+    --sim-results <JSON_PATH>
   python scripts/generate-combined-report.py --golden-run <RUN_ID>
   python scripts/generate-combined-report.py --sim-results <JSON_PATH>
 """
@@ -26,7 +27,8 @@ import os
 import sys
 from datetime import datetime
 
-from config import get_project_path
+from config import get_project_path, load_app_name
+
 from cxas_scrapi.utils.reporting import (
     generate_combined_html_report,
     load_callback_test_results,
@@ -36,15 +38,18 @@ from cxas_scrapi.utils.reporting import (
 )
 
 REPORTS_DIR = get_project_path("eval-reports")
+
+USER_AGENT_EXTENSION = "skill/cxas-agent-foundry/generate-combined-report"
 SIM_EVALS_YAML = get_project_path("evals", "simulations", "simulations.yaml")
 
 
 def main():
     try:
-        import cxas_scrapi  # noqa: F401
+        import cxas_scrapi  # noqa: F401, PLC0415
     except ImportError:
         print(
-            "Error: cxas-scrapi not installed. Activate venv (source .venv/bin/activate) and install cxas-scrapi first."
+            "Error: cxas-scrapi not installed. Activate venv "
+            "(source .venv/bin/activate) and install cxas-scrapi first."
         )
         sys.exit(1)
 
@@ -62,7 +67,8 @@ def main():
     parser.add_argument(
         "--app-name",
         default=None,
-        help="App resource name. If not provided, reads from gecx-config.json via config.py.",
+        help="App resource name. If not provided, reads from "
+        "gecx-config.json via config.py.",
     )
     parser.add_argument(
         "--golden-modality",
@@ -91,8 +97,6 @@ def main():
     # Resolve app_name from gecx-config.json if not provided
     if not args.app_name and args.golden_run:
         try:
-            from config import load_app_name
-
             args.app_name = load_app_name()
         except Exception:
             print(
@@ -107,7 +111,11 @@ def main():
 
     if args.golden_run:
         print(f"Loading golden results for run {args.golden_run}...")
-        golden_results = load_golden_results(args.golden_run, args.app_name)
+        golden_results = load_golden_results(
+            args.golden_run,
+            args.app_name,
+            user_agent_extension=USER_AGENT_EXTENSION,
+        )
         print(f"  {len(golden_results)} golden results")
 
     sim_wall_clock_s = None
@@ -151,6 +159,7 @@ def main():
         golden_modality=args.golden_modality,
         sim_modality=args.sim_modality,
         sim_wall_clock_s=sim_wall_clock_s,
+        user_agent_extension=USER_AGENT_EXTENSION,
     )
     print(f"\nReport: {output_path}")
 

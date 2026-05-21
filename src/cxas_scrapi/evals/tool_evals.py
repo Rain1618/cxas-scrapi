@@ -95,7 +95,12 @@ class Expectation(BaseModel):
 class ToolEvals:
     """Utility class for testing CXAS Tools."""
 
-    def __init__(self, app_name: str, creds: Any = None):
+    def __init__(
+        self,
+        app_name: str,
+        creds: Any = None,
+        user_agent_extension: str = None,
+    ):
         """Initializes the ToolEvals class.
 
         Args:
@@ -110,8 +115,17 @@ class ToolEvals:
         self.location = parts[3] if len(parts) > 3 else "us"
 
         self.creds = creds
-        self.tools_client = Tools(app_name=self.app_name, creds=self.creds)
-        self.var_client = Variables(app_name=self.app_name, creds=self.creds)
+        self.user_agent_extension = user_agent_extension
+        self.tools_client = Tools(
+            app_name=self.app_name,
+            creds=self.creds,
+            user_agent_extension=user_agent_extension,
+        )
+        self.var_client = Variables(
+            app_name=self.app_name,
+            creds=self.creds,
+            user_agent_extension=user_agent_extension,
+        )
         try:
             self.tool_map = self.tools_client.get_tools_map(reverse=True)
         except (AttributeError, KeyError, RuntimeError, ValueError) as e:
@@ -400,7 +414,9 @@ class ToolEvals:
         mined_data = {}
         try:
             history_client = ConversationHistory(
-                app_name=self.app_name, creds=self.creds
+                app_name=self.app_name,
+                creds=self.creds,
+                user_agent_extension=self.user_agent_extension,
             )
             convs = list(history_client.list_conversations())[:limit]
             for c in convs:
@@ -600,7 +616,10 @@ class ToolEvals:
 
         # Fetch app metadata and user info once per run
         app_client = Apps(
-            project_id=self.project_id, location=self.location, creds=self.creds
+            project_id=self.project_id,
+            location=self.location,
+            creds=self.creds,
+            user_agent_extension=self.user_agent_extension,
         )
         app = app_client.get_app(self.app_name)
         app_display_name = app.display_name if app else "Unknown App"

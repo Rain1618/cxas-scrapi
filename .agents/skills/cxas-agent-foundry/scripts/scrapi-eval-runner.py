@@ -42,6 +42,8 @@ from cxas_scrapi.core.evaluations import Evaluations
 from cxas_scrapi.utils.eval_utils import EvalUtils
 from config import load_app_name, get_project_path
 
+USER_AGENT_EXTENSION = "skill/cxas-agent-foundry/scrapi-eval-runner"
+
 
 EVALS_YAML = get_project_path("evals", "scenarios", "scenarios.yaml")
 GOLDEN_EVALS_DIR = get_project_path("evals", "goldens")
@@ -67,7 +69,7 @@ def get_app_name():
 
 
 def get_evals_client():
-    return Evaluations(app_name=load_app_name())
+    return Evaluations(app_name=load_app_name(), user_agent_extension=USER_AGENT_EXTENSION)
 
 
 def get_eval_utils():

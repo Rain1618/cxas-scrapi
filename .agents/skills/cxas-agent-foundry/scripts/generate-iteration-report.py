@@ -34,6 +34,8 @@ from typing import Any, Dict, List, Optional, Tuple
 sys.path.insert(0, os.path.dirname(__file__))
 from config import load_config, load_app_name, get_project_path
 
+USER_AGENT_EXTENSION = "skill/cxas-agent-foundry/generate-iteration-report"
+
 
 ITERATIONS_DIR = get_project_path("eval-reports", "iterations")
 DIFF_EXTENSIONS = {".txt", ".py"}
@@ -203,7 +205,7 @@ def _fetch_eval_results() -> Optional[Dict[str, Any]]:
 
     try:
         app_name = load_app_name()
-        client = Evaluations(app_name=app_name)
+        client = Evaluations(app_name=app_name, user_agent_extension=USER_AGENT_EXTENSION)
     except Exception as e:
         print(f"  Warning: Could not initialize Evaluations client: {e}")
         return None

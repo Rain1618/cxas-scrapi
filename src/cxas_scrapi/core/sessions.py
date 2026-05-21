@@ -39,7 +39,7 @@ except ImportError:
     HAS_IPYTHON = False
 
 from cxas_scrapi.core.audio_transformer import AudioTransformer
-from cxas_scrapi.core.common import Common
+from cxas_scrapi.core.common import DEFAULT_API_ENDPOINT, Common
 from cxas_scrapi.core.conversation_history import ConversationHistory
 
 logger = logging.getLogger(__name__)
@@ -51,7 +51,7 @@ class Modality(str, Enum):
 
 
 BIDI_SESSION_URI = (
-    "wss://ces.googleapis.com/ws/"
+    f"wss://{DEFAULT_API_ENDPOINT}/ws/"
     "google.cloud.ces.v1.SessionService/BidiRunSession/locations/"
 )
 AUDIO_CHUNK_SIZE = 3200
@@ -117,11 +117,13 @@ class BidiSessionHandler:
         token: str,
         config: Dict[str, Any],
         inputs: List[Dict[str, Any]],
+        user_agent: str = None,
     ):
         self.uri = BIDI_SESSION_URI + location
         self.token = token
         self.config = config
         self.inputs = inputs
+        self.user_agent = user_agent
         self.agent_turn_manager = AgentTurnManager()
         self.ws_app = None
         self.outputs = []
@@ -144,6 +146,22 @@ class BidiSessionHandler:
         self, audio_payload: Dict[str, Any], turn_index: int
     ):
         audio_bytes = audio_payload["audio"]
+        variables = audio_payload.get("variables")
+
+        if variables:
+            logging.debug(
+                "Sending variables before audio chunks: %s", variables
+            )
+            var_message = types.BidiSessionClientMessage(
+                realtime_input=types.SessionInput(variables=variables)
+            )
+            var_json = json_format.MessageToJson(
+                var_message._pb,
+                preserving_proto_field_name=False,
+                indent=None,
+            )
+            self.ws_app.send(var_json)
+            time.sleep(0.5)
 
         logging.debug("Sending leading silence before turn %d...", turn_index)
         self._send_silence(
@@ -152,16 +170,11 @@ class BidiSessionHandler:
 
         logging.debug("Sending audio chunks for turn %d...", turn_index)
 
-        variables = audio_payload.get("variables")
         for i in range(0, len(audio_bytes), AUDIO_CHUNK_SIZE):
             chunk = audio_bytes[i : i + AUDIO_CHUNK_SIZE]
 
-            input_args = {"audio": chunk}
-            if i == 0 and variables:
-                input_args["variables"] = variables
-
             query_message = types.BidiSessionClientMessage(
-                realtime_input=types.SessionInput(**input_args)
+                realtime_input=types.SessionInput(audio=chunk)
             )
             query_json = json_format.MessageToJson(
                 query_message._pb,
@@ -249,6 +262,11 @@ class BidiSessionHandler:
 
                         self.agent_turn_manager.reset()
                         time.sleep(1)
+                    elif "variables" in input_item:
+                        logging.debug(
+                            "Sent variables, pausing to allow state update..."
+                        )
+                        time.sleep(0.5)
 
                 except Exception as e:
                     logging.debug("Failed to send generic input: %s", e)
@@ -310,7 +328,10 @@ class BidiSessionHandler:
         logging.debug("Connecting to WebSocket: %s", self.uri)
         self.ws_app = websocket.WebSocketApp(
             self.uri,
-            header={"Authorization": f"Bearer {self.token}"},
+            header={
+                "Authorization": f"Bearer {self.token}",
+                "User-Agent": self.user_agent,
+            },
             on_open=self._on_open,
             on_message=self._on_message,
             on_error=self._on_error,
@@ -342,8 +363,7 @@ class Sessions(Common):
 
         # Initialize Sessions Client
         self.client = SessionServiceClient(
-            credentials=self.creds,
-            client_options=self.client_options,
+            transport=self.get_grpc_transport(SessionServiceClient),
             client_info=self.client_info,
         )
 
@@ -730,7 +750,21 @@ class Sessions(Common):
     def async_bidi_run_session(
         self, config: dict, inputs: list[dict[str, Any]]
     ):
-        handler = BidiSessionHandler(self.location, self.token, config, inputs)
+        try:
+            if hasattr(self.creds, "refresh"):
+                self.creds.refresh(Request())
+        except Exception as e:
+            logger.debug(
+                f"Failed to refresh credentials before Bidi session: {e}"
+            )
+
+        handler = BidiSessionHandler(
+            self.location,
+            self.token,
+            config,
+            inputs,
+            user_agent=self.user_agent,
+        )
         return handler.run()
 
     def make_text_request(self, config: dict, inputs: list[dict[str, Any]]):
@@ -889,8 +923,11 @@ class Sessions(Common):
                         )
             config["historical_contexts"] = parsed_contexts
 
-        if variables and modality == Modality.TEXT:
-            inputs.append({"variables": variables})
+        if variables:
+            if modality == Modality.TEXT:
+                inputs.append({"variables": variables})
+            elif modality == Modality.AUDIO and text is None and audio is None:
+                inputs.append({"variables": variables})
 
         if dtmf is not None:
             inputs.append({"dtmf": dtmf})

@@ -48,9 +48,9 @@ class Apps(Common):
         self.parent = f"projects/{project_id}/locations/{location}"
 
         self.client_options = self._get_client_options(self.parent)
+
         self.client = AgentServiceClient(
-            credentials=self.creds,
-            client_options=self.client_options,
+            transport=self.get_grpc_transport(AgentServiceClient),
             client_info=self.client_info,
         )
 
@@ -128,6 +128,7 @@ class Apps(Common):
         display_name: str,
         description: str = None,
         root_agent: str = None,
+        **kwargs,
     ) -> types.App:
         """Creates a new app."""
         app = types.App(display_name=display_name)
@@ -135,6 +136,9 @@ class Apps(Common):
             app.description = description
         if root_agent:
             app.root_agent = root_agent
+
+        for key, value in kwargs.items():
+            setattr(app, key, value)
 
         request = types.CreateAppRequest(
             parent=self.parent, app=app, app_id=app_id

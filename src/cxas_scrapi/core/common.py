@@ -33,6 +33,8 @@ GLOBAL_SCOPES = [
     "https://www.googleapis.com/auth/generative-language.retriever",
 ]
 
+DEFAULT_API_ENDPOINT = "ces.googleapis.com"
+
 
 class Common:
     """Core Class for managing Auth and shared functions in CX Agent Studio."""
@@ -44,6 +46,7 @@ class Common:
         creds: Any = None,
         scope: List[str] = None,
         app_name: str = None,  # Optional: used to determine client_options
+        user_agent_extension: str = None,
     ):
         self.scopes = GLOBAL_SCOPES
         if scope:
@@ -100,7 +103,25 @@ class Common:
         except importlib.metadata.PackageNotFoundError:
             sdk_version = "unknown"
 
-        self.client_info = ClientInfo(user_agent=f"cxas-scrapi/{sdk_version}")
+        self.user_agent = f"cxas-scrapi/{sdk_version}"
+        if user_agent_extension:
+            self.user_agent += f":{user_agent_extension}"
+
+        self.client_info = ClientInfo(user_agent=self.user_agent)
+
+    @property
+    def token(self) -> Optional[str]:
+        if (
+            hasattr(self, "creds")
+            and self.creds
+            and hasattr(self.creds, "token")
+        ):
+            return self.creds.token
+        return getattr(self, "_token", None)
+
+    @token.setter
+    def token(self, value: Optional[str]):
+        self._token = value
 
     @staticmethod
     def empty_to_dict(v: Any) -> Any:
@@ -139,7 +160,7 @@ class Common:
             return {}
 
         # Using global endpoint mapping for CXAS v1beta
-        api_endpoint = "ces.googleapis.com"
+        api_endpoint = DEFAULT_API_ENDPOINT
         return {"api_endpoint": api_endpoint}
 
     @staticmethod
@@ -327,6 +348,23 @@ class Common:
             ):
                 agent_texts.append(output["text"])
         return separator.join(agent_texts)
+
+    def get_grpc_transport(self, client_class: type):
+        """Creates a customer gRPC transport for CXAS SCRAPI calls."""
+        transport_class = client_class.get_transport_class("grpc")
+
+        host = DEFAULT_API_ENDPOINT
+        client_opts = getattr(self, "client_options", None)
+        if client_opts and "api_endpoint" in client_opts:
+            host = self.client_options["api_endpoint"]
+
+        channel = transport_class.create_channel(
+            host=host,
+            credentials=self.creds,
+            options=[("grpc.primary_user_agent", self.user_agent)],
+        )
+
+        return transport_class(channel=channel)
 
     def recurse_proto_repeated_composite(self, repeated_object):
         """Recursively converts RepeatedComposite objects to lists."""

@@ -42,7 +42,13 @@ from cxas_scrapi.cli.app import (
 )
 from cxas_scrapi.cli.create_local import handle_local_create
 from cxas_scrapi.cli.insights_cli import populate_insights_parser
-from cxas_scrapi.cli.migration_cli import MigrationCLI
+from cxas_scrapi.cli.migration_cli import (
+    MigrationCLI,
+)
+from cxas_scrapi.cli.migration_cli import (
+    register as register_dfcx_cxas_subparsers,
+)
+from cxas_scrapi.cli.trace_cli import register as register_trace_subparser
 from cxas_scrapi.core.apps import Apps
 from cxas_scrapi.core.conversation_history import ConversationHistory
 from cxas_scrapi.core.deployments import Deployments
@@ -459,24 +465,53 @@ def combined_evals_report_cmd(args: argparse.Namespace) -> None:
         generate_combined_report_from_dir,
     )
 
-    output_path = args.output or os.path.join(
-        args.evals_dir, "combined_report.html"
+    output_path = (
+        args.gcs_path
+        or args.output
+        or os.path.join(args.output_dir, "combined_report.html")
     )
 
     include_list = args.include.split(",") if args.include else []
+    filter_files_list = (
+        args.filter_files.split(",")
+        if getattr(args, "filter_files", None)
+        else []
+    )
+    filter_tags_list = (
+        args.filter_tags.split(",")
+        if getattr(args, "filter_tags", None)
+        else []
+    )
+
+    if getattr(args, "input_dir", None):
+        if args.tool_test_file == "evals/tool_tests/":
+            args.tool_test_file = os.path.join(args.input_dir, "tool_tests/")
+        if args.goldens_dir == "evals/goldens/":
+            args.goldens_dir = os.path.join(args.input_dir, "goldens/")
+        if args.simulation_dir == "evals/simulations/":
+            args.simulation_dir = os.path.join(args.input_dir, "simulations/")
+
+    sim_parallel = getattr(args, "sim_parallel", 5)
+    golden_timeout = getattr(args, "golden_timeout", 600)
 
     generate_combined_report_from_dir(
-        evals_dir=args.evals_dir,
+        output_dir=args.output_dir,
         golden_run=args.golden_run,
         app_name=args.app_name,
         output_path=output_path,
         run=args.run,
         app_dir=args.app_dir,
         tool_test_file=args.tool_test_file,
-        golden_file=args.golden_file,
+        goldens_dir=args.goldens_dir,
         simulation_dir=args.simulation_dir,
         format=args.format,
         include=include_list,
+        modality=args.modality,
+        runs=args.runs,
+        filter_files=filter_files_list,
+        filter_tags=filter_tags_list,
+        parallel=sim_parallel,
+        golden_timeout=golden_timeout,
     )
     print(f"Combined report generated at {output_path}")
 
@@ -982,8 +1017,10 @@ def get_parser() -> argparse.ArgumentParser:
         help="Default name for the target agent.",
     )
     parser_migrate_dfcx.set_defaults(func=run_migration_dashboard)
-    # TODO: Add flags for non-interactive mode (e.g., --headless, --config)
-    # to bypass the interactive dashboard.
+
+    # Register the dfcx-cxas subcommand tree (run / stage1 / stage2 /
+    # stage3 / resume). Lives in its own module to keep main.py lean.
+    register_dfcx_cxas_subparsers(migrate_subparsers)
 
     # Parser for 'init-github-action'
     parser_init_gh = subparsers.add_parser(
@@ -1081,7 +1118,7 @@ def get_parser() -> argparse.ArgumentParser:
         help="Generate combined report for golden + simulation results.",
     )
     parser_report.add_argument(
-        "--evals-dir",
+        "--output-dir",
         required=True,
         help="Directory containing eval results (sim_results.json, etc.).",
     )
@@ -1107,14 +1144,21 @@ def get_parser() -> argparse.ArgumentParser:
         help="Directory of the app (used for callback tests).",
     )
     parser_report.add_argument(
-        "--tool-test-file",
-        default="evals/tool_tests/order_tests.yaml",
-        help="Path to tool test file.",
+        "--input-dir",
+        help=(
+            "Base directory containing goldens/, simulations/, "
+            "and tool_tests/ subdirectories."
+        ),
     )
     parser_report.add_argument(
-        "--golden-file",
-        default="evals/goldens/order_lookup.yaml",
-        help="Path to golden file to push.",
+        "--tool-test-file",
+        default="evals/tool_tests/",
+        help="Path to tool test file or directory.",
+    )
+    parser_report.add_argument(
+        "--goldens-dir",
+        default="evals/goldens/",
+        help="Path to goldens directory or file to push.",
     )
     parser_report.add_argument(
         "--simulation-dir",
@@ -1122,17 +1166,55 @@ def get_parser() -> argparse.ArgumentParser:
         help="Path to simulation files directory.",
     )
     parser_report.add_argument(
+        "--gcs-path",
+        help="Optional: GCS path to store the combined report (starts with gs://).",
+    )
+    parser_report.add_argument(
         "--format",
         default="html",
         help="Output format (default: html).",
     )
     parser_report.add_argument(
+        "--runs",
+        type=int,
+        default=1,
+        help="Number of runs per golden and simulation test case.",
+    )
+    parser_report.add_argument(
+        "--sim-parallel",
+        type=int,
+        default=5,
+        help=(
+            "Number of parallel worker sessions for simulations. Defaults to 5."
+        ),
+    )
+    parser_report.add_argument(
+        "--modality",
+        choices=["text", "audio"],
+        default="text",
+        help="Evaluation execution modality (text or audio). Defaults to text.",
+    )
+    parser_report.add_argument(
         "--include",
-        default="sims,goldens,scenarios",
+        default="sims,goldens,tools,callbacks",
         help=(
             "Categories to include (comma-separated, "
-            "default: sims,goldens,scenarios)."
+            "default: sims,goldens,tools,callbacks)."
         ),
+    )
+    parser_report.add_argument(
+        "--filter-files",
+        help="Optional: Comma-separated list of filenames to include.",
+    )
+    parser_report.add_argument(
+        "--filter-tags",
+        help="Optional: Comma-separated list of tags to include.",
+    )
+    parser_report.add_argument(
+        "--golden-timeout",
+        type=int,
+        default=600,
+        help="Timeout in seconds waiting for remote goldens. Defaults to 600.",
     )
     parser_report.set_defaults(func=combined_evals_report_cmd)
 
@@ -1526,6 +1608,14 @@ def get_parser() -> argparse.ArgumentParser:
         help="Run only structure and config rules.",
     )
     parser_lint.add_argument(
+        "--agents",
+        help="Only discover/lint specific agents (comma-separated list).",
+    )
+    parser_lint.add_argument(
+        "--tools",
+        help="Only discover/lint specific tools (comma-separated list).",
+    )
+    parser_lint.add_argument(
         "--agent",
         help="Validate a single agent directory against CES schema.",
     )
@@ -1756,6 +1846,9 @@ def get_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawTextHelpFormatter,
     )
     populate_insights_parser(parser_insights)
+
+    # Subparsers for 'trace' — observability/debugging for past conversations.
+    register_trace_subparser(subparsers)
 
     return parser
 

@@ -24,12 +24,8 @@ import pandas as pd
 import yaml
 from jinja2 import Template
 
-from cxas_scrapi.cli.main import wait_for_evaluation_completion
-from cxas_scrapi.core.evaluations import Evaluations
 from cxas_scrapi.core.tools import Tools
-from cxas_scrapi.evals.callback_evals import CallbackEvals
-from cxas_scrapi.evals.simulation_evals import SimulationEvals
-from cxas_scrapi.evals.tool_evals import ToolEvals
+from cxas_scrapi.evals import runner as evals_runner
 from cxas_scrapi.utils.eval_utils import EvalUtils
 from cxas_scrapi.utils.gcs_utils import GCSUtils
 
@@ -112,7 +108,8 @@ def _get_html_head(ts):
   .fail {{ color: #e74c3c; }}
   .error {{ color: #e67e22; }}
   table {{ border-collapse: collapse; width: 100%; margin: 10px 0; }}
-  th, td {{
+  th,
+  td {{
     text-align: left;
     padding: 8px 12px;
     border-bottom: 1px solid #ddd;
@@ -553,6 +550,7 @@ def generate_html_report(
     model: str,
     app_name: str = "",
     wall_clock_s: float = None,
+    user_agent_extension: str = None,
 ):
     """Generate an HTML report and save it locally or upload to GCS.
 
@@ -576,7 +574,9 @@ def generate_html_report(
     tools_map = {}
     if app_name:
         try:
-            tools_map = Tools(app_name=app_name).get_tools_map()
+            tools_map = Tools(
+                app_name=app_name, user_agent_extension=user_agent_extension
+            ).get_tools_map()
         except Exception:
             pass
 
@@ -647,6 +647,7 @@ def generate_combined_html_report(
     golden_modality="text",
     sim_modality="text",
     sim_wall_clock_s=None,
+    user_agent_extension=None,
 ):
     """Generate combined HTML report based on results from multiple sources."""
     ts = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -811,13 +812,15 @@ def generate_combined_html_report(
                             reason = "Semantic similarity too low"
                         else:
                             continue
-                        failure_groups.setdefault(reason, set()).add(r["name"])
+                        failure_groups.setdefault(reason, set()).add(
+                            ("golden", r["name"])
+                        )
             for exp in r.get("expectations", []):
                 if exp.get("status") == "Not Met":
                     reason = str(exp.get("expectation", ""))[:80]
                     failure_groups.setdefault(
                         f"Expectation not met: {reason}", set()
-                    ).add(r["name"])
+                    ).add(("golden", r["name"]))
 
     # Collect sim failures
     if sim_results:
@@ -827,14 +830,18 @@ def generate_combined_html_report(
             for step in r.get("step_details", []):
                 if step.get("status") != "Completed":
                     reason = f"Goal not completed: {step.get('goal', '')[:60]}"
-                    failure_groups.setdefault(reason, set()).add(r["name"])
+                    failure_groups.setdefault(reason, set()).add(
+                        ("sim", r["name"])
+                    )
             for exp in r.get("expectation_details", []):
                 if exp.get("status") == "Not Met":
                     reason = (
                         f"Expectation not met: "
                         f"{exp.get('expectation', '')[:60]}"
                     )
-                    failure_groups.setdefault(reason, set()).add(r["name"])
+                    failure_groups.setdefault(reason, set()).add(
+                        ("sim", r["name"])
+                    )
 
     # Collect tool test failures
     if tool_results:
@@ -858,7 +865,7 @@ def generate_combined_html_report(
                 )
             else:
                 reason = errors[:80]
-            failure_groups.setdefault(reason, set()).add(r["name"])
+            failure_groups.setdefault(reason, set()).add(("tool", r["name"]))
 
     # Collect callback failures
     if callback_results:
@@ -867,14 +874,16 @@ def generate_combined_html_report(
                 continue
             reason = str(r.get("error", "Unknown error"))[:80]
             failure_groups.setdefault(f"Callback: {reason}", set()).add(
-                r["name"]
+                ("callback", r["name"])
             )
 
     # Prepare tools map for template if needed
     tools_map = {}
     if app_name:
         try:
-            tools_map = Tools(app_name=app_name).get_tools_map()
+            tools_map = Tools(
+                app_name=app_name, user_agent_extension=user_agent_extension
+            ).get_tools_map()
         except Exception:
             pass
 
@@ -955,8 +964,19 @@ def generate_combined_html_report(
     )
 
     if output_path:
-        with open(output_path, "w") as f:
-            f.write(html)
+        if output_path.startswith("gs://"):
+            mtls_url = _upload_to_gcs(output_path, html)
+            if not mtls_url:
+                # Fallback to local file if upload failed
+                filename = output_path.rsplit("/", maxsplit=1)[-1]
+                if not filename.endswith(".html"):
+                    filename = "report_fallback.html"
+                output_path = filename
+                with open(output_path, "w") as f:
+                    f.write(html)
+        else:
+            with open(output_path, "w") as f:
+                f.write(html)
 
     return html
 
@@ -967,7 +987,9 @@ def _outcome_str(val):
     return str(val) if val else "?"
 
 
-def load_golden_results(run_id, app_name, include=None):
+def load_golden_results(
+    run_id, app_name, include=None, user_agent_extension=None
+):
     """Fetch golden results and parse into report-friendly format."""
     if include is None:
         include = ["goldens", "scenarios"]
@@ -986,17 +1008,6 @@ def load_golden_results(run_id, app_name, include=None):
     for cat in ["goldens", "scenarios"]:
         for resource, display in evals_map.get(cat, {}).items():
             name_lookup[resource] = display
-
-    tools_map = {}
-    try:
-        tools_map = Tools(app_name=app_name).get_tools_map()
-    except Exception:
-        pass
-
-    def _resolve_tool(name):
-        if name in tools_map:
-            return tools_map[name]
-        return name.split("/")[-1] if "/" in name else name
 
     results = []
     for r in raw_results:
@@ -1031,6 +1042,7 @@ def load_golden_results(run_id, app_name, include=None):
             turn_data = {
                 "index": i + 1,
                 "semantic_score": sem.get("score"),
+                "semantic_explanation": sem.get("explanation"),
                 "comparisons": [],
             }
             for o in turn.get("expectation_outcome", []):
@@ -1068,6 +1080,11 @@ def load_golden_results(run_id, app_name, include=None):
                         else "(missed)"
                     )
                     comp["actual_args"] = obs.get("args", {}) if obs else {}
+                    tir = o.get("toolInvocationResult", {})
+                    comp["tool_invocation_score"] = tir.get(
+                        "parameterCorrectnessScore"
+                    )
+                    comp["tool_invocation_explanation"] = tir.get("explanation")
                 elif "tool_response" in exp:
                     continue
                 elif "agent_transfer" in exp:
@@ -1094,7 +1111,7 @@ def load_golden_results(run_id, app_name, include=None):
 
         expectations = []
         for ee in golden.get("evaluation_expectation_results", []):
-            result_val = ee.get("result")
+            result_val = ee.get("outcome", ee.get("result"))
             exp_text = ee.get("prompt", ee.get("evaluation_expectation", ""))
             explanation = ee.get("explanation", "")
             met = (
@@ -1176,6 +1193,37 @@ def load_golden_results(run_id, app_name, include=None):
     return results
 
 
+def _load_sim_test_cases(yaml_path: str) -> list[dict]:
+    """Loads sim files and merges common params and expectations."""
+    with open(yaml_path) as f:
+        data = yaml.safe_load(f) or {}
+    if isinstance(data, list):
+        return data
+
+    common_params = data.get("common_session_parameters", {}) or {}
+    common_expectations = data.get("common_expectations", []) or []
+    cases = data.get("evals", [])
+    if not isinstance(cases, list):
+        return []
+
+    merged_cases = []
+    for c in cases:
+        if isinstance(c, dict):
+            case_copy = c.copy()
+            # Merge session parameters
+            case_params = case_copy.get("session_parameters", {}) or {}
+            merged = common_params.copy()
+            merged.update(case_params)
+            case_copy["session_parameters"] = merged
+
+            # Merge expectations
+            case_expectations = case_copy.get("expectations", []) or []
+            case_copy["expectations"] = common_expectations + case_expectations
+
+            merged_cases.append(case_copy)
+    return merged_cases
+
+
 def load_sim_results(json_path, sim_evals_yaml=None):
     """Load sim results from JSON file.
 
@@ -1196,10 +1244,12 @@ def load_sim_results(json_path, sim_evals_yaml=None):
     # Backfill session_parameters if missing
     if sim_evals_yaml:
         try:
-            with open(sim_evals_yaml) as f:
-                templates = {
-                    e["name"]: e for e in yaml.safe_load(f).get("evals", [])
-                }
+            eval_list = _load_sim_test_cases(sim_evals_yaml)
+            templates = {
+                e["name"]: e
+                for e in eval_list
+                if isinstance(e, dict) and "name" in e
+            }
             for r in results:
                 if "session_parameters" not in r and r.get("name") in templates:
                     r["session_parameters"] = templates[r["name"]].get(
@@ -1254,24 +1304,30 @@ def load_callback_test_results(csv_or_json_path):
 
 
 def generate_combined_report_from_dir(
-    evals_dir,
+    output_dir,
     golden_run=None,
     app_name=None,
     output_path=None,
     run=False,
     app_dir=None,
     tool_test_file=None,
-    golden_file=None,
+    goldens_dir=None,
     simulation_dir=None,
     format="html",
     include=None,
+    modality="text",
+    runs=1,
+    filter_files=None,
+    filter_tags=None,
+    parallel=1,
+    golden_timeout=600,
 ):
     """Load results from directory and generate combined HTML report."""
-    if not os.path.isdir(evals_dir):
-        raise ValueError(f"{evals_dir} is not a directory.")
+    if not os.path.isdir(output_dir):
+        raise ValueError(f"{output_dir} is not a directory.")
 
     if include is None or "all" in include:
-        include = ["sims", "goldens", "scenarios"]
+        include = ["sims", "goldens", "tools", "callbacks"]
 
     sim_results = []
     tool_results = []
@@ -1283,13 +1339,20 @@ def generate_combined_report_from_dir(
             app_name=app_name,
             app_dir=app_dir,
             tool_test_file=tool_test_file,
-            golden_file=golden_file,
+            goldens_dir=goldens_dir,
             simulation_dir=simulation_dir,
-            evals_dir=evals_dir,
+            output_dir=output_dir,
+            modality=modality,
+            runs=runs,
+            filter_files=filter_files,
+            filter_tags=filter_tags,
+            parallel=parallel,
+            golden_timeout=golden_timeout,
+            include=include,
         )
         sim_results = run_results["simulation"] if "sims" in include else []
         # Map tool results to expected format if needed
-        if "scenarios" in include:
+        if "tools" in include:
             for r in run_results["tool"]:
                 tool_results.append(
                     {
@@ -1302,7 +1365,8 @@ def generate_combined_report_from_dir(
                         "errors": r.get("errors", ""),
                     }
                 )
-            # Map callback results
+        # Map callback results
+        if "callbacks" in include:
             for r in run_results["callback"]:
                 callback_results.append(
                     {
@@ -1315,24 +1379,27 @@ def generate_combined_report_from_dir(
                         "error": r.get("error_message", ""),
                     }
                 )
-        golden_results = run_results["golden"]
+        golden_results = run_results["golden"] if "goldens" in include else []
     else:
         sim_files = []
         if "sims" in include:
-            sim_files = glob.glob(os.path.join(evals_dir, "sim_results*.json"))
+            sim_files = glob.glob(os.path.join(output_dir, "sim_results*.json"))
 
         tool_files = []
         callback_files = []
-        if "scenarios" in include:
-            tool_files = glob.glob(os.path.join(evals_dir, "tool_results*.csv"))
-            tool_files.extend(
-                glob.glob(os.path.join(evals_dir, "tool_results*.json"))
+        if "tools" in include:
+            tool_files = glob.glob(
+                os.path.join(output_dir, "tool_results*.csv")
             )
+            tool_files.extend(
+                glob.glob(os.path.join(output_dir, "tool_results*.json"))
+            )
+        if "callbacks" in include:
             callback_files = glob.glob(
-                os.path.join(evals_dir, "callback_results*.csv")
+                os.path.join(output_dir, "callback_results*.csv")
             )
             callback_files.extend(
-                glob.glob(os.path.join(evals_dir, "callback_results*.json"))
+                glob.glob(os.path.join(output_dir, "callback_results*.json"))
             )
 
         if sim_files:
@@ -1396,7 +1463,7 @@ def generate_combined_report_from_dir(
             )
 
     if not output_path:
-        output_path = os.path.join(evals_dir, "combined_report.html")
+        output_path = os.path.join(output_dir, "combined_report.html")
 
     return generate_combined_html_report(
         golden_results=golden_results,
@@ -1405,6 +1472,8 @@ def generate_combined_report_from_dir(
         callback_results=callback_results,
         output_path=output_path,
         app_name=app_name or "",
+        golden_modality=modality,
+        sim_modality=modality,
     )
 
 
@@ -1412,101 +1481,34 @@ def run_all_evals(
     app_name,
     app_dir=None,
     tool_test_file=None,
-    golden_file=None,
+    goldens_dir=None,
     simulation_dir=None,
-    evals_dir=None,
+    output_dir=None,
+    modality="text",
+    runs=1,
+    filter_files=None,
+    filter_tags=None,
+    parallel=1,
+    golden_timeout=600,
+    include=None,
 ):
-    """Runs all 4 types of evaluations and returns aggregated results."""
-    results = {"callback": [], "tool": [], "golden": [], "simulation": []}
+    """Runs all 4 types of evaluations and returns aggregated results.
 
-    # 1. Callback tests
-    if not app_dir and app_name:
-        app_dir = f"cxas_app/{app_name.split('/')[-1]}"
-    if app_dir and os.path.exists(app_dir):
-        print(f"Running callback tests in {app_dir}")
-        callback_evals = CallbackEvals()
-        df = callback_evals.test_all_callbacks_in_app_dir(app_dir=app_dir)
-        results["callback"] = df.to_dict(orient="records")
-        if evals_dir:
-            df.to_csv(
-                os.path.join(evals_dir, "callback_results.csv"), index=False
-            )
-
-    # 2. Tool tests
-    if not tool_test_file:
-        tool_test_file = "evals/tool_tests/order_tests.yaml"
-    if app_name and os.path.exists(tool_test_file):
-        print(f"Running tool tests with {tool_test_file}")
-        tool_evals = ToolEvals(app_name=app_name)
-        test_cases = tool_evals.load_tool_test_cases_from_file(tool_test_file)
-        df = tool_evals.run_tool_tests(test_cases)
-        results["tool"] = df.to_dict(orient="records")
-        if evals_dir:
-            df.to_csv(os.path.join(evals_dir, "tool_results.csv"), index=False)
-
-    # 3. Platform goldens
-    if not golden_file:
-        golden_file = "evals/goldens/order_lookup.yaml"
-    if app_name and os.path.exists(golden_file):
-        print(f"Running platform goldens with {golden_file}")
-        eval_client = Evaluations(app_name=app_name)
-        eval_utils = EvalUtils(app_name=app_name)
-
-        df_initial = eval_utils.evals_to_dataframe().get(
-            "summary", pd.DataFrame()
-        )
-        old_result_ids = set()
-        if not df_initial.empty and "eval_result_id" in df_initial.columns:
-            old_result_ids = set(df_initial["eval_result_id"].unique())
-
-        print(f"Pushing golden file {golden_file}")
-        eval_client.push_evaluation(file_path=golden_file, app_name=app_name)
-
-        prefix = os.path.splitext(os.path.basename(golden_file))[0]
-        all_evals = eval_client.list_evaluations(app_name=app_name)
-        evaluations_to_run = [
-            e.name for e in all_evals if e.display_name.startswith(prefix)
-        ]
-
-        if evaluations_to_run:
-            print(f"Running evaluations: {evaluations_to_run}")
-            eval_client.run_evaluation(
-                evaluations=evaluations_to_run, app_name=app_name
-            )
-            df_new_run = wait_for_evaluation_completion(
-                eval_utils,
-                old_result_ids,
-                app_name,
-                expected_count=len(evaluations_to_run),
-            )
-            if not df_new_run.empty and "eval_result_id" in df_new_run.columns:
-                new_ids = (
-                    set(df_new_run["eval_result_id"].unique()) - old_result_ids
-                )
-                if new_ids:
-                    new_id = list(new_ids)[0]
-                    results["golden"] = load_golden_results(new_id, app_name)
-
-    # 4. Local simulations
-    if not simulation_dir:
-        simulation_dir = "evals/simulations/"
-    if app_name and os.path.exists(simulation_dir):
-        sim_files = glob.glob(os.path.join(simulation_dir, "*.yaml"))
-        if sim_files:
-            print(f"Running {len(sim_files)} simulations")
-            sim_evals = SimulationEvals(app_name=app_name)
-            test_cases = []
-            for sf in sim_files:
-                with open(sf) as f:
-                    cases = yaml.safe_load(f)
-                    if isinstance(cases, list):
-                        test_cases.extend(cases)
-            if test_cases:
-                sim_results = sim_evals.run_simulations(test_cases)
-                results["simulation"] = sim_results
-                if evals_dir:
-                    save_path = os.path.join(evals_dir, "sim_results.json")
-                    with open(save_path, "w") as f:
-                        json.dump(sim_results, f, indent=2)
-
-    return results
+    Deprecated legacy wrapper. Use
+    `cxas_scrapi.evals.runner.run_all_evals` directly.
+    """
+    return evals_runner.run_all_evals(
+        app_name=app_name,
+        modality=modality,
+        runs=runs,
+        goldens_dir=goldens_dir,
+        tool_test_file=tool_test_file,
+        simulation_dir=simulation_dir,
+        app_dir=app_dir,
+        output_dir=output_dir,
+        filter_files=filter_files,
+        filter_tags=filter_tags,
+        parallel=parallel,
+        golden_timeout=golden_timeout,
+        include=include,
+    )

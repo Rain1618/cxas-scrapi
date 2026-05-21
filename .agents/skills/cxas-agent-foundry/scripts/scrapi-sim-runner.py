@@ -51,6 +51,8 @@ from cxas_scrapi.prompts import llm_user_prompts
 
 from config import load_app_name, get_project_path
 
+USER_AGENT_EXTENSION = "skill/cxas-agent-foundry/scrapi-sim-runner"
+
 
 EVALS_YAML = get_project_path("evals", "scenarios", "scenarios.yaml")
 SIM_EVALS_YAML = get_project_path("evals", "simulations", "simulations.yaml")
@@ -375,7 +377,7 @@ def generate_html_report(
     if app_name:
         try:
             from cxas_scrapi.core.tools import Tools
-            tools_map = Tools(app_name=app_name).get_tools_map()
+            tools_map = Tools(app_name=app_name, user_agent_extension=USER_AGENT_EXTENSION).get_tools_map()
         except Exception:
             pass
 
@@ -399,7 +401,12 @@ def generate_html_report(
   .summary .big {{ font-size: 2em; font-weight: bold; }}
   .pass {{ color: #27ae60; }} .fail {{ color: #e74c3c; }} .error {{ color: #e67e22; }}
   table {{ border-collapse: collapse; width: 100%; margin: 10px 0; }}
-  th, td {{ text-align: left; padding: 8px 12px; border-bottom: 1px solid #ddd; }}
+  th,
+  td {{
+    text-align: left;
+    padding: 8px 12px;
+    border-bottom: 1px solid #ddd;
+  }}
   th {{ background: #2c3e50; color: white; }}
   tr:hover {{ background: #f5f5f5; }}
   .eval-card {{ background: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin: 15px 0; overflow: hidden; }}
@@ -524,6 +531,7 @@ function jumpToRun(evalName, runIdx) {{
 
                     parsed_lines = []
                     for entry in trace:
+                        last_kind = "system"
                         for line in entry.split("\n"):
                             line = line.strip()
                             if not line:
@@ -532,19 +540,25 @@ function jumpToRun(evalName, runIdx) {{
                             if line.startswith("Agent Text (Diag):"):
                                 continue
                             elif line.startswith("Agent Text:"):
-                                parsed_lines.append(("agent", line[len("Agent Text:"):].strip()))
+                                last_kind = "agent"
+                                parsed_lines.append((last_kind, line[len("Agent Text:"):].strip()))
                             elif line.startswith("User:"):
-                                parsed_lines.append(("user", line[5:].strip()))
+                                last_kind = "user"
+                                parsed_lines.append((last_kind, line[5:].strip()))
                             elif line.startswith("Tool Call"):
-                                parsed_lines.append(("tool_call", line))
+                                last_kind = "tool_call"
+                                parsed_lines.append((last_kind, line))
                             elif line.startswith("Tool Response"):
-                                parsed_lines.append(("tool_resp", line))
+                                last_kind = "tool_resp"
+                                parsed_lines.append((last_kind, line))
                             elif line.startswith("Agent Transfer:"):
-                                parsed_lines.append(("agent_transfer", line[len("Agent Transfer:"):].strip()))
+                                last_kind = "agent_transfer"
+                                parsed_lines.append((last_kind, line[len("Agent Transfer:"):].strip()))
                             elif line.startswith("Custom Payload:"):
-                                parsed_lines.append(("custom_payload", line[len("Custom Payload:"):].strip()))
+                                last_kind = "custom_payload"
+                                parsed_lines.append((last_kind, line[len("Custom Payload:"):].strip()))
                             else:
-                                parsed_lines.append(("system", line))
+                                parsed_lines.append((last_kind, line))
 
                     merged = []
                     for kind, text in parsed_lines:
@@ -621,7 +635,7 @@ def _run_single_eval(app_name, tc, run_idx, runs, model, modality, verbose):
         # Each thread gets its own SimRunner instance (separate session client)
         import time as _time
         _start = _time.time()
-        sim = EnhancedSimRunner(app_name=app_name)
+        sim = EnhancedSimRunner(app_name=app_name, user_agent_extension=USER_AGENT_EXTENSION)
         conv = sim.simulate_conversation(
             test_case=tc,
             model=model,

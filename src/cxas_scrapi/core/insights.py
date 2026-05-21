@@ -76,6 +76,7 @@ class Insights(Common):
             "Authorization": f"Bearer {self.creds.token}",
             "Content-Type": "application/json; charset=utf-8",
             "x-goog-user-project": self.project_id,
+            "User-Agent": self.user_agent,
         }
 
         response = requests.request(

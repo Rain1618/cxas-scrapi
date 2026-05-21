@@ -39,6 +39,8 @@ SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPTS_DIR)
 from config import load_app_name, load_config, get_project_path
 
+USER_AGENT_EXTENSION = "skill/cxas-agent-foundry/bootstrap-evals"
+
 
 SIM_SKELETON = """\
 # Simulation eval definitions -- local sims run via SCRAPI Sessions API.
@@ -116,7 +118,7 @@ def _resolve_resource_paths(evals_dir, app_name):
 
     try:
         from cxas_scrapi.core.agents import Agents
-        agents_client = Agents(app_name=app_name)
+        agents_client = Agents(app_name=app_name, user_agent_extension=USER_AGENT_EXTENSION)
         agents_map = agents_client.get_agents_map(reverse=False)
         resource_map.update(agents_map)
         for resource_path, display_name in agents_map.items():
@@ -126,7 +128,7 @@ def _resolve_resource_paths(evals_dir, app_name):
 
     try:
         from cxas_scrapi.core.tools import Tools
-        tools_client = Tools(app_name=app_name)
+        tools_client = Tools(app_name=app_name, user_agent_extension=USER_AGENT_EXTENSION)
         tools_map = tools_client.get_tools_map()
         # get_tools_map returns {resource_path: display_name}
         for resource_path, display_name in tools_map.items():
@@ -231,7 +233,7 @@ def export_goldens(app_name, dry_run=False, keep_expectations=False):
 
     try:
         from cxas_scrapi.core.evaluations import Evaluations, ExportFormat
-        client = Evaluations(app_name=app_name)
+        client = Evaluations(app_name=app_name, user_agent_extension=USER_AGENT_EXTENSION)
         evals_map = client.get_evaluations_map(reverse=True)
         goldens = evals_map.get("goldens", {})
 
@@ -282,7 +284,7 @@ def generate_tool_tests(app_name, dry_run=False):
 
     try:
         from cxas_scrapi.evals.tool_evals import ToolEvals
-        tool_evals = ToolEvals(app_name=app_name)
+        tool_evals = ToolEvals(app_name=app_name, user_agent_extension=USER_AGENT_EXTENSION)
         tool_evals.generate_tool_tests(
             target_dir=output_dir,
             mine_tool_data=True,

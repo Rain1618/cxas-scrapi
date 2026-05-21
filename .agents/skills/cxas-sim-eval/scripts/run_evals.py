@@ -28,6 +28,8 @@ from google import genai
 
 import threading
 
+USER_AGENT_EXTENSION = "skill/cxas-sim-eval/run_evals"
+
 class ThreadLocalStream:
     def __init__(self, default_stream):
         self.default_stream = default_stream
@@ -84,7 +86,7 @@ def run_single_eval(item, evals_dir, app_name, run_index, skip_analysis=False, m
             test_case = json.load(f)
 
         # Initialize the Simulator per test case
-        sim_evals = SimulationEvals(app_name)
+        sim_evals = SimulationEvals(app_name, user_agent_extension=USER_AGENT_EXTENSION)
         eval_conv = sim_evals.simulate_conversation(
             test_case=test_case, console_logging=True, session_id=session_id, modality=modality
         )

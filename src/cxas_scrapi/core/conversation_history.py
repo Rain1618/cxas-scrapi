@@ -51,8 +51,7 @@ class ConversationHistory(Common):
         self.app_name = app_name
         self.client_options = self._get_client_options(self.app_name)
         self.client = AgentServiceClient(
-            credentials=self.creds,
-            client_options=self.client_options,
+            transport=self.get_grpc_transport(AgentServiceClient),
             client_info=self.client_info,
         )
 
@@ -149,7 +148,7 @@ class ConversationHistory(Common):
         """
         filter_str = None
         if time_filter:
-            now = datetime.datetime.utcnow()
+            now = datetime.datetime.now(datetime.timezone.utc)
             valid = False
             if time_filter.endswith("d"):
                 days = int(time_filter[:-1])
