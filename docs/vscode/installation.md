@@ -24,6 +24,8 @@ If you already have `cxas-scrapi` installed and on your `PATH` (`cxas --help` wo
 
 ## Install the extension
 
+![Demonstration of the installation process](../assets/vscode/installation.gif)
+
 1. **Download the extension:** Download the VS Code extension VSIX package directly from [vscode-cxas-0.1.0.vsix](https://storage.googleapis.com/gassets-api-ai/cxas-scrapi-external-preview/vscode-cxas-0.1.0.vsix).
 2. Open the **Extensions** sidebar (`Cmd+Shift+X` / `Ctrl+Shift+X`), click the `…` menu in the top right of the panel, and pick **Install from VSIX...**:
 
