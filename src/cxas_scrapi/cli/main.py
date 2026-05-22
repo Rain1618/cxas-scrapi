@@ -1684,7 +1684,7 @@ def get_parser() -> argparse.ArgumentParser:
         "--description", help="Description for the new app."
     )
     parser_create.add_argument(
-        "--app-name", help="Optional specific app_name to use."
+        "--app-id", help="Optional specific app_id to use."
     )
     _add_project_location_args(parser_create)
     parser_create.set_defaults(func=app_create)
