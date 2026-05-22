@@ -50,6 +50,7 @@ from cxas_scrapi.cli.migration_cli import (
 )
 from cxas_scrapi.cli.trace_cli import register as register_trace_subparser
 from cxas_scrapi.core.apps import Apps
+from cxas_scrapi.core.common import Common
 from cxas_scrapi.core.conversation_history import ConversationHistory
 from cxas_scrapi.core.deployments import Deployments
 from cxas_scrapi.core.evaluations import Evaluations, ExportFormat
@@ -823,10 +824,17 @@ def conversations_list(args: argparse.Namespace) -> None:
     """Lists conversations for an app."""
     print(f"Listing conversations for App: {args.app_name}")
 
-    # Extract project_id and location from app_name
-    parts = args.app_name.split("/")
-    project_id = parts[1]
-    location = parts[3]
+    # Extract and validate app_name
+    app_name = Common._get_app_name(args.app_name)
+    if not app_name:
+        print(
+            "Error: Invalid App Name format. Please use the full resource "
+            "name in the format 'projects/.../locations/.../apps/...'"
+        )
+        sys.exit(1)
+
+    project_id = Common._get_project_id(args.app_name)
+    location = Common._get_location(args.app_name)
 
     apps_client = Apps(project_id=project_id, location=location)
     ch_client = ConversationHistory(
@@ -849,11 +857,18 @@ def conversations_get(args: argparse.Namespace) -> None:
     """Gets details of a specific conversation."""
     print(f"Getting conversation: {args.conversation_resource_name}")
 
-    # Extract project_id and location from conversation_resource_name
-    parts = args.conversation_resource_name.split("/")
-    project_id = parts[1]
-    location = parts[3]
-    app_name = "/".join(parts[:6])
+    # Extract and validate app_name
+    app_name = Common._get_app_name(args.conversation_resource_name)
+    if not app_name:
+        print(
+            "Error: Invalid Conversation Resource Name format. Please use the "
+            "full resource name in the format "
+            "'projects/.../locations/.../apps/.../conversations/...'"
+        )
+        sys.exit(1)
+
+    project_id = Common._get_project_id(args.conversation_resource_name)
+    location = Common._get_location(args.conversation_resource_name)
 
     apps_client = Apps(project_id=project_id, location=location)
     ch_client = ConversationHistory(app_name=app_name, creds=apps_client.creds)
