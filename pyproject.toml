@@ -63,6 +63,7 @@ dependencies = [
   # `cxas migrate dfcx` interactive dashboard and `cxas migrate dfcx-cxas`
   # subcommands do NOT pull it in.
   "InquirerPy",
+  "ratelimit",
 ]
 
 [project.optional-dependencies]

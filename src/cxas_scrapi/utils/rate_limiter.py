@@ -12,19 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Rate limiter utilities for CXAS Scrapi."""
+"""Rate limiter utilities for CXAS Scrapi using the ratelimit package."""
 
 import logging
-import threading
-import time
+
+from ratelimit import RateLimitException, limits, sleep_and_retry
 
 logger = logging.getLogger(__name__)
 
 
 class RateLimiter:
-    """A thread-safe request-bucket rate limiter.
+    """A thread-safe request pacing rate limiter.
 
     Useful for limiting request rates to APIs to avoid quota exhaustion.
+    Delegates core lock-handling and pacing arithmetic to the PyPI 'ratelimit'
+    library.
     """
 
     def __init__(self, requests_per_minute: float):
@@ -36,13 +38,24 @@ class RateLimiter:
         if requests_per_minute <= 0:
             raise ValueError("requests_per_minute must be greater than 0")
 
-        self.rate = requests_per_minute / 60.0  # requests per second
-        self.capacity = 1.0  # Capacity of 1.0 enforces strict pacing
-        self.available_requests = self.capacity
-        self.last_update = time.time()
-        self.lock = threading.Lock()
+        # Strict uniform pacing: 1 request allowed every (60.0 / RPM) seconds.
+        self.period = 60.0 / requests_per_minute
 
-        logger.debug(f"Initialized RateLimiter with rate={self.rate}/s")
+        # We instantiate the RateLimitDecorator directly
+        self._limiter = limits(calls=1, period=self.period)
+
+        # Define a dummy pacing function wrapped with limits decorator
+        @self._limiter
+        def _pace():
+            pass
+
+        self._pace_immediate = _pace
+        self._pace_blocking = sleep_and_retry(_pace)
+
+        logger.debug(
+            f"Initialized RateLimiter with pacing of 1 request "
+            f"every {self.period:.2f}s"
+        )
 
     def consume(self, requests: float = 1.0) -> bool:
         """Attempts to consume requests immediately.
@@ -53,11 +66,11 @@ class RateLimiter:
         Returns:
             True if requests were successfully consumed, False otherwise.
         """
-        with self.lock:
-            self._refill()
-            if self.available_requests >= requests:
-                self.available_requests -= requests
-                return True
+        try:
+            for _ in range(int(requests)):
+                self._pace_immediate()
+            return True
+        except RateLimitException:
             return False
 
     def wait_and_consume(self, requests: float = 1.0) -> None:
@@ -66,35 +79,5 @@ class RateLimiter:
         Args:
             requests: Number of requests to consume.
         """
-        while True:
-            with self.lock:
-                self._refill()
-                if self.available_requests >= requests:
-                    self.available_requests -= requests
-                    return
-
-                # Calculate how long we need to wait
-                needed = requests - self.available_requests
-                wait_time = needed / self.rate
-
-            logger.debug(f"Rate limit reached. Waiting {wait_time:.2f}s...")
-            time.sleep(wait_time)
-
-    def _refill(self) -> None:
-        """Refills the bucket based on elapsed time.
-
-        Must be called while holding the lock.
-        """
-        now = time.time()
-        elapsed = now - self.last_update
-        self.last_update = now
-
-        new_requests = elapsed * self.rate
-        if new_requests > 0:
-            self.available_requests = min(
-                self.capacity, self.available_requests + new_requests
-            )
-            logger.debug(
-                f"Refilled {new_requests:.2f} requests. "
-                f"Current: {self.available_requests:.2f}"
-            )
+        for _ in range(int(requests)):
+            self._pace_blocking()
