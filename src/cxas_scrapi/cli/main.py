@@ -40,6 +40,10 @@ from cxas_scrapi.cli.app import (
     apps_get,
     apps_list,
 )
+from cxas_scrapi.cli.versions_cli import (
+    app_versions_compare,
+    app_versions_list,
+)
 from cxas_scrapi.cli.create_local import handle_local_create
 from cxas_scrapi.cli.insights_cli import populate_insights_parser
 from cxas_scrapi.cli.migration_cli import (
@@ -1856,6 +1860,61 @@ def get_parser() -> argparse.ArgumentParser:
         "--app-dir", default=".", help="App directory."
     )
     parser_local_create_tool.set_defaults(func=handle_local_create)
+
+    # Subparsers for 'versions'
+    parser_versions = subparsers.add_parser(
+        "versions", help="Manage GECX app versions (list, compare)."
+    )
+    versions_subparsers = parser_versions.add_subparsers(
+        title="Versions Commands", dest="versions_command", required=True
+    )
+
+    parser_versions_list = versions_subparsers.add_parser(
+        "list", help="List all deployed versions of an app."
+    )
+    parser_versions_list.add_argument(
+        "--app-name",
+        required=True,
+        help="The GECX App ID (projects/.../locations/.../apps/...).",
+    )
+    _add_project_location_args(parser_versions_list, required=False)
+    parser_versions_list.set_defaults(func=app_versions_list)
+
+    parser_versions_compare = versions_subparsers.add_parser(
+        "compare", help="Compare two app versions and generate a human-readable diff."
+    )
+    parser_versions_compare.add_argument(
+        "--app-name",
+        required=True,
+        help="The GECX App ID (projects/.../locations/.../apps/...).",
+    )
+    parser_versions_compare.add_argument(
+        "--source",
+        required=True,
+        help="Source version ID (e.g., UUID).",
+    )
+    parser_versions_compare.add_argument(
+        "--target",
+        required=True,
+        help="Target version ID (e.g., UUID).",
+    )
+    parser_versions_compare.add_argument(
+        "--output",
+        help="Optional path to save the Markdown/HTML comparison report.",
+    )
+    parser_versions_compare.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        help="Print detailed line-by-line diff directly to the console using rich formatting.",
+    )
+    parser_versions_compare.add_argument(
+        "--web",
+        action="store_true",
+        help="Force generate a self-contained interactive HTML diff report instead of console text.",
+    )
+    _add_project_location_args(parser_versions_compare, required=False)
+    parser_versions_compare.set_defaults(func=app_versions_compare)
 
     # Subparsers for 'tools', 'callbacks', and 'variables'
     register_resources_subparsers(subparsers)
