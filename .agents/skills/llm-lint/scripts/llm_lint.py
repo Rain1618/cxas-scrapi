@@ -268,8 +268,7 @@ conflicts.
 """
 
     print(
-        "Running semantic review using Gemini "
-        "(this may take a few seconds)..."
+        "Running semantic review using Gemini (this may take a few seconds)..."
     )
     report = gemini_client.generate(
         prompt=user_prompt,
