@@ -33,7 +33,7 @@ if str(repo_root) not in sys.path:
     sys.path.insert(0, str(repo_root))
 
 # pylint: disable=wrong-import-position
-from cxas_scrapi.utils.gemini import GeminiGenerate
+from cxas_scrapi.utils.gemini import GeminiGenerate  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
@@ -43,7 +43,9 @@ def parse_args() -> argparse.Namespace:
         An argparse.Namespace containing parsed arguments.
     """
     parser = argparse.ArgumentParser(
-        description="Run AI-driven semantic linter on GECX sub-agent instructions."
+        description=(
+            "Run AI-driven semantic linter on GECX sub-agent instructions."
+        )
     )
     parser.add_argument(
         "--agent-dir",
@@ -139,10 +141,10 @@ def resolve_gcp_credentials(
                 pass
 
     # Standard GECX default location if still None
-    if not location:
+    if not location or location == "<YOUR_GCP_REGION>":
         location = "us-central1"
 
-    if not project_id:
+    if not project_id or project_id == "<YOUR_GCP_PROJECT_ID>":
         print(
             "Error: GCP Project ID could not be resolved. Please provide "
             "either --project-id, set PROJECT_ID environment variable, "
@@ -160,7 +162,10 @@ def main() -> None:
     agent_path = Path(args.agent_dir)
 
     if not agent_path.exists():
-        print(f"Error: Agent directory '{args.agent_dir}' does not exist.", file=sys.stderr)
+        print(
+            f"Error: Agent directory '{args.agent_dir}' does not exist.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     instruction_file = agent_path / "instruction.txt"
@@ -192,7 +197,10 @@ def main() -> None:
         sys.exit(1)
 
     if not instruction_content.strip():
-        print(f"Warning: instruction.txt in '{args.agent_dir}' is empty.", file=sys.stderr)
+        print(
+            f"Warning: instruction.txt in '{args.agent_dir}' is empty.",
+            file=sys.stderr,
+        )
         sys.exit(0)
 
     # Initialize Gemini
@@ -204,31 +212,52 @@ def main() -> None:
     )
 
     # Build Prompts
-    system_prompt = """You are an expert conversational AI designer and reviewer specializing in Google Customer Engagement Suite (GECX) agent design.
-Your task is to analyze the provided sub-agent instructions (`instruction.txt`) and point out any errors, style issues, and ambiguities.
+    system_prompt = """You are an expert conversational AI designer and \
+reviewer specializing in Google Customer Engagement Suite (GECX) agent design.
+Your task is to analyze the sub-agent instructions (`instruction.txt`) \
+and point out any errors, style issues, and ambiguities.
 
 Please evaluate the instruction text according to the following Criteria:
 
 1. BASIC ERRORS:
    - Typos: spelling errors or typos.
-   - Grammar Errors: grammatical issues that may cause user or model confusion.
+   - Grammar Errors: grammatical issues that may cause user or model \
+confusion.
 
 2. INSTRUCTION STYLE:
-   - Length: Identify overly long, verbose, or repetitive instructions. Suggest ways to condense them without losing key constraints or details.
-   - Task Decomposition: Ensure complex workflows are broken down into sequential, numbered steps. Crucially, check that steps use ordered numbering with nesting (e.g., 1., 1.1., 1.2.) rather than flat lists or paragraphs.
-   - Completeness & Edge Cases: Identify underspecified instructions, such as conditional `if-then` statements without a clear fallback `else` or fallback action when a condition isn't met.
-   - Clarity & Ambiguity: Identify abbreviations, specialized jargon, or slang that lacks a clear, singular meaning.
+   - Length: Identify overly long, verbose, or repetitive instructions. \
+Suggest ways to condense them without losing key constraints or details.
+   - Task Decomposition: Ensure complex workflows are broken down into \
+sequential, numbered steps. Crucially, check that steps use ordered \
+numbering with nesting (e.g., 1., 1.1., 1.2.) rather than flat lists or \
+paragraphs.
+   - Completeness & Edge Cases: Identify underspecified instructions, such \
+as conditional `if-then` statements without a clear fallback `else` or \
+fallback action when a condition isn't met.
+   - Clarity & Ambiguity: Identify abbreviations, specialized jargon, or \
+slang that lacks a clear, singular meaning.
    - Contradictions: Identify directives that contradict each other.
 
 3. EXAMPLES:
-   - Redundant Examples: Sample conversations or user logs that repeat standard instructions without demonstrating unique edge cases.
-   - Conflicting Examples: Examples that contradict rules defined in the instructions.
+   - Redundant Examples: Sample conversations or user logs that repeat \
+standard instructions without demonstrating unique edge cases.
+   - Conflicting Examples: Examples that contradict rules defined in the \
+instructions.
 
-Provide your response as a structured markdown report containing these sections:
-- SUMMARY: A high-level score (e.g., out of 100) and a brief 2-3 sentence assessment of instruction quality.
-- BASIC ERRORS: Table or list of typos, misspellings, and grammar bugs, with exact line or text snippets and recommended fixes. If none, state "No issues found."
-- INSTRUCTION STYLE: Detailed review of length, task decomposition, completeness, ambiguity, and contradictions, pointing out specific instructions and explaining how to correct them. Provide a concrete rewrite suggestion for the problematic sections using proper nested numbering.
-- EXAMPLES: Review of any examples provided, flagging redundancies or conflicts.
+Provide your response as a structured markdown report containing these \
+sections:
+- SUMMARY: A high-level score (e.g., out of 100) and a brief 2-3 sentence \
+assessment of instruction quality.
+- BASIC ERRORS: Table or list of typos, misspellings, and grammar bugs, \
+with exact line or text snippets and recommended fixes. If none, state \
+"No issues found."
+- INSTRUCTION STYLE: Detailed review of length, task decomposition, \
+completeness, ambiguity, and contradictions, pointing out specific \
+instructions and explaining how to correct them. Provide a concrete \
+rewrite suggestion for the problematic sections using proper nested \
+numbering.
+- EXAMPLES: Review of any examples provided, flagging redundancies or \
+conflicts.
 """
 
     user_prompt = f"""Please lint the following GECX sub-agent instructions:
@@ -238,7 +267,10 @@ Provide your response as a structured markdown report containing these sections:
 --- END INSTRUCTION.TXT ---
 """
 
-    print("Running semantic review using Gemini (this may take a few seconds)...")
+    print(
+        "Running semantic review using Gemini "
+        "(this may take a few seconds)..."
+    )
     report = gemini_client.generate(
         prompt=user_prompt,
         system_prompt=system_prompt,
@@ -266,7 +298,10 @@ Provide your response as a structured markdown report containing these sections:
         print(f"Successfully saved report to: {output_path}")
         print("------------------------------------------------------------")
     except OSError as e:
-        print(f"Warning: Failed to save report file to {output_path}: {e}", file=sys.stderr)
+        print(
+            f"Warning: Failed to save report file to {output_path}: {e}",
+            file=sys.stderr,
+        )
 
 
 if __name__ == "__main__":
