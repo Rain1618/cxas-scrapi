@@ -72,6 +72,11 @@ class AudioTransformer:
                 input=synthesis_input, voice=voice, audio_config=audio_config
             )
 
+            if burst_noise_files and AudioSegment is None:
+                logging.warning(
+                    "burst_noise_files were provided, but pydub is not installed or failed to import (e.g., under Python 3.13+). Audio burst noise injection will be skipped."
+                )
+
             # Apply burst noise if provided and pydub is available
             if AudioSegment and burst_noise_files:
                 try:

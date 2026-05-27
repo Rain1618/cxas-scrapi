@@ -139,6 +139,10 @@ class BidiSessionHandler:
         # Setup continuous background noise segment if provided
         self.bg_noise_segment = None
         self.bg_noise_cursor = 0
+        if background_noise_file and AudioSegment is None:
+            logging.warning(
+                "background_noise_file was provided, but pydub is not installed or failed to import (e.g., under Python 3.13+). Audio background noise streaming will be skipped."
+            )
         if AudioSegment and background_noise_file:
             try:
                 # Load and format to 16000Hz, 1ch, 16-bit (sample width 2) PCM
