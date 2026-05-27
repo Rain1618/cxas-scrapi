@@ -649,6 +649,8 @@ def generate_combined_html_report(
     sim_modality="text",
     sim_wall_clock_s=None,
     user_agent_extension=None,
+    bg_noise_file=None,
+    burst_noise_files=None,
 ):
     """Generate combined HTML report based on results from multiple sources."""
     ts = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -964,6 +966,8 @@ def generate_combined_html_report(
         json=json,
         css_content=load_component("base/base.css"),
         js_interaction=load_component("base/interaction.js"),
+        bg_noise_file=os.path.basename(bg_noise_file) if bg_noise_file else None,
+        burst_noise_files=burst_noise_files,
     )
 
     if output_path:
@@ -1324,6 +1328,8 @@ def generate_combined_report_from_dir(
     filter_tags=None,
     parallel=1,
     golden_timeout=600,
+    bg_noise_file=None,
+    burst_noise_files=None,
 ):
     """Load results from directory and generate combined HTML report."""
     if not os.path.isdir(output_dir):
@@ -1352,6 +1358,8 @@ def generate_combined_report_from_dir(
             parallel=parallel,
             golden_timeout=golden_timeout,
             include=include,
+            bg_noise_file=bg_noise_file,
+            burst_noise_files=burst_noise_files,
         )
         sim_results = run_results["simulation"] if "sims" in include else []
         # Map tool results to expected format if needed
@@ -1477,6 +1485,8 @@ def generate_combined_report_from_dir(
         app_name=app_name or "",
         golden_modality=modality,
         sim_modality=modality,
+        bg_noise_file=bg_noise_file,
+        burst_noise_files=burst_noise_files,
     )
 
 
@@ -1494,6 +1504,8 @@ def run_all_evals(
     parallel=1,
     golden_timeout=600,
     include=None,
+    bg_noise_file=None,
+    burst_noise_files=None,
 ):
     """Runs all 4 types of evaluations and returns aggregated results.
 
@@ -1514,4 +1526,6 @@ def run_all_evals(
         parallel=parallel,
         golden_timeout=golden_timeout,
         include=include,
+        bg_noise_file=bg_noise_file,
+        burst_noise_files=burst_noise_files,
     )
