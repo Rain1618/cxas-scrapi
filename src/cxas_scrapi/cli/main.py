@@ -339,7 +339,56 @@ def run_eval(args: argparse.Namespace) -> None:  # noqa: C901
 
         print(f"Found {len(evaluations_to_run)} matching test(s) to run.")
 
+    # Determine which evaluations to run
+    evaluations_to_run = []
+    if args.evaluation_id:
+        evaluations_to_run.append(args.evaluation_id)
+    else:
+        # Require prefix or tags if no specific ID is given
+        if not args.display_name_prefix and not args.tags:
+            print(
+                "Error: You must provide either --evaluation-id, "
+                "--display-name-prefix, or --tags to "
+                "specify which tests to run."
+            )
+            sys.exit(1)
 
+        if args.display_name_prefix:
+            print(
+                "Fetching tests matching prefix: "
+                f"'{args.display_name_prefix}'..."
+            )
+        elif args.tags:
+            print(f"Fetching tests matching tags: {args.tags}...")
+        all_evals = eval_client.list_evaluations(app_name=args.app_name)
+
+        for eval_obj in all_evals:
+            match = False
+
+            if args.display_name_prefix and eval_obj.display_name.startswith(
+                args.display_name_prefix
+            ):
+                match = True
+
+            # Assuming tags are accessible as a
+            # list/repeated field on the Evaluation
+            # object
+            if args.tags and hasattr(eval_obj, "tags"):
+                # intersection of CLI tags and agent tags
+                if any(t in eval_obj.tags for t in args.tags):
+                    match = True
+
+            if match:
+                evaluations_to_run.append(eval_obj.name)
+
+        if not evaluations_to_run:
+            print(
+                "No matching tests found for the "
+                "given prefix or tags. Aborting run."
+            )
+            sys.exit(0)
+
+        print(f"Found {len(evaluations_to_run)} matching test(s) to run.")
 
     try:
         # Step 1: Capture existing evaluation runs to diff against later
