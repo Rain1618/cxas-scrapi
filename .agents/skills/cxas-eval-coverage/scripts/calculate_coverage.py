@@ -17,13 +17,19 @@
 
 import argparse
 import json
+import math
+import os
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Set, Tuple
 
 import yaml
+from pydantic import BaseModel, Field
+
+from cxas_scrapi.utils.gemini import GeminiGenerate
 
 
+# Functions to evaluate tool coverage
 def find_tools(tools_dir: Path) -> Set[str]:
     """Finds all declared tool names in the tools directory."""
     tools = set()
@@ -144,318 +150,12 @@ def parse_simulation_evals(eval_file: Path, all_tools: Set[str]) -> Set[str]:
     return referenced_tools
 
 
-class InstructionSegment:
-    def __init__(
-        self,
-        tag_name: str,
-        attributes: Dict[str, str],
-        content: str,
-        start: int,
-        end: int,
-    ):
-        self.tag_name = tag_name
-        self.attributes = attributes
-        self.content = content
-        self.start = start
-        self.end = end
-        self.children: List["InstructionSegment"] = []
-        self.id = ""
-        self.type = ""
-        self.category = ""
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "id": self.id,
-            "type": self.type,
-            "category": self.category,
-            "tag": self.tag_name,
-            "attributes": self.attributes,
-            "content": self.content.strip() if not self.children else "",
-            "children": [c.to_dict() for c in self.children],
-        }
-
-
-def extract_keywords(text: str) -> Set[str]:
-    """Extracts unique lowercase alphanumeric keywords of length >= 3, ignoring common stopwords."""
-    stopwords = {
-        "the",
-        "and",
-        "you",
-        "are",
-        "our",
-        "for",
-        "with",
-        "can",
-        "this",
-        "that",
-        "your",
-        "have",
-        "has",
-        "not",
-        "but",
-        "will",
-        "shall",
-        "should",
-        "would",
-        "could",
-        "please",
-        "any",
-        "some",
-        "all",
-        "say",
-        "tell",
-        "get",
-        "take",
-        "make",
-        "call",
-    }
-    words = re.findall(r"\b[a-zA-Z0-9_-]{3,}\b", text.lower())
-    return {w for w in words if w not in stopwords}
-
-
-def parse_instruction_to_tree(content: str) -> List[InstructionSegment]:
-    """Recursively parses GECX instruction.txt into a tree of InstructionSegments."""
-
-    def parse_recursive(
-        text: str, start_offset: int = 0
-    ) -> List[InstructionSegment]:
-        nodes = []
-        pos = 0
-        while pos < len(text):
-            # Look for next start tag
-            start_match = re.search(
-                r"<([a-zA-Z0-9_-]+)(?:\s+([^>]+))?>", text[pos:]
-            )
-            if not start_match:
-                break
-
-            tag_name = start_match.group(1)
-            attr_str = start_match.group(2) or ""
-            start_tag_index = pos + start_match.start()
-            after_start_tag = pos + start_match.end()
-
-            attrs = {}
-            if attr_str:
-                attr_matches = re.findall(
-                    r'([a-zA-Z0-9_-]+)="([^"]*)"', attr_str
-                )
-                attrs = {k: v for k, v in attr_matches}
-
-            # Find matching end tag, respecting nested tags of same type
-            end_tag_pattern = re.compile(rf"</{tag_name}>")
-            start_tag_pattern = re.compile(rf"<{tag_name}(?:\s+[^>]+)?>")
-
-            scan_pos = after_start_tag
-            nest_level = 1
-            end_tag_index = -1
-            after_end_tag = -1
-
-            while nest_level > 0:
-                next_end = end_tag_pattern.search(text, scan_pos)
-                if not next_end:
-                    end_tag_index = len(text)
-                    after_end_tag = len(text)
-                    break
-
-                next_start = start_tag_pattern.search(text, scan_pos)
-                if next_start and next_start.start() < next_end.start():
-                    nest_level += 1
-                    scan_pos = next_start.end()
-                else:
-                    nest_level -= 1
-                    if nest_level == 0:
-                        end_tag_index = next_end.start()
-                        after_end_tag = next_end.end()
-                    else:
-                        scan_pos = next_end.end()
-
-            tag_content = text[after_start_tag:end_tag_index]
-            node = InstructionSegment(
-                tag_name=tag_name,
-                attributes=attrs,
-                content=tag_content,
-                start=start_offset + start_tag_index,
-                end=start_offset + after_end_tag,
-            )
-
-            node.children = parse_recursive(
-                tag_content, start_offset + after_start_tag
-            )
-
-            # Also discover dynamic inline tool and handoff segments inside content
-            # if there are no sub-tags already parsed.
-            if not node.children and tag_name.lower() in ("action", "step"):
-                # Find all {@TOOL: ToolName}
-                tool_refs = re.findall(
-                    r"\{@TOOL[:\s]+([^}]+)\}", tag_content, re.IGNORECASE
-                )
-                for tool_name in tool_refs:
-                    t_node = InstructionSegment(
-                        tag_name="tool_ref",
-                        attributes={"name": tool_name.strip()},
-                        content="",
-                        start=node.start,
-                        end=node.end,
-                    )
-                    node.children.append(t_node)
-
-                # Find all {@AGENT: AgentName}
-                agent_refs = re.findall(
-                    r"\{@AGENT[:\s]+([^}]+)\}", tag_content, re.IGNORECASE
-                )
-                for agent_name in agent_refs:
-                    a_node = InstructionSegment(
-                        tag_name="handoff",
-                        attributes={"name": agent_name.strip()},
-                        content="",
-                        start=node.start,
-                        end=node.end,
-                    )
-                    node.children.append(a_node)
-
-            nodes.append(node)
-            pos = after_end_tag
-
-        return nodes
-
-    root_nodes = parse_recursive(content)
-
-    # Assign IDs, Types, and Categories hierarchically
-    def assign_metadata(node: InstructionSegment, parent_id: str = ""):
-        tag_lower = node.tag_name.lower()
-
-        # Assign Type
-        type_map = {
-            "role": "Persona",
-            "persona": "Persona",
-            "voice": "Voice",
-            "guideline": "Rule",
-            "global_rules": "RuleGroup",
-            "rule": "Rule",
-            "taskflow": "Taskflow",
-            "subtask": "Sequence",
-            "step": "SequenceStep",
-            "trigger": "Trigger",
-            "action": "Action",
-            "condition": "Condition",
-            "handoff": "Handoff",
-            "slot": "Slot",
-            "tool_ref": "Tool",
-        }
-        node.type = type_map.get(tag_lower, "segment")
-
-        # Assign Category
-        if tag_lower in (
-            "role",
-            "persona",
-            "voice",
-            "guideline",
-            "global_rules",
-            "rule",
-            "guidelines",
-        ):
-            node.category = "Static"
-        elif tag_lower in ("subtask", "step", "slot", "trigger", "action"):
-            node.category = "Stateful"
-        elif tag_lower in ("condition", "handoff", "out_of_scope"):
-            node.category = "Conditional"
-        elif tag_lower in ("tool_ref",):
-            node.category = "Tool"
-        else:
-            node.category = "Stateful"
-
-        name_attr = node.attributes.get("name", "")
-
-        if tag_lower in (
-            "role",
-            "persona",
-            "voice",
-            "taskflow",
-            "global_rules",
-            "guidelines",
-        ):
-            node.id = tag_lower
-        elif tag_lower == "subtask" and name_attr:
-            node.id = f"taskflow.subtask.{name_attr}"
-        else:
-            suffix = f".{name_attr}" if name_attr else ""
-            node.id = (
-                f"{parent_id}.{tag_lower}{suffix}"
-                if parent_id
-                else f"{tag_lower}{suffix}"
-            )
-
-        for child in node.children:
-            assign_metadata(child, node.id)
-
-    for r in root_nodes:
-        assign_metadata(r)
-
-    return root_nodes
-
-
-def flatten_instruction_tree(
-    nodes: List[InstructionSegment],
-) -> Dict[str, InstructionSegment]:
-    """Flattens tree nodes into a dictionary mapping ID to InstructionSegment."""
-    flat = {}
-
-    def traverse(node: InstructionSegment):
-        flat[node.id] = node
-        for child in node.children:
-            traverse(child)
-
-    for n in nodes:
-        traverse(n)
-    return flat
-
-
-def analyze_instructions(
-    agent_dir: Path,
-) -> Tuple[List[Dict[str, Any]], Dict[str, InstructionSegment]]:
-    """Discovers and parses all instruction.txt files into a consolidated segment tree."""
-    instruction_files = []
-
-    p = agent_dir / "instruction.txt"
-    if p.is_file():
-        instruction_files.append(p)
-
-    # Look for sub-agent instruction files recursively
-    agents_dir = agent_dir / "agents"
-    if agents_dir.exists() and agents_dir.is_dir():
-        for p in agents_dir.glob("**/instruction.txt"):
-            if p.is_file():
-                instruction_files.append(p)
-
-    all_tree_dicts = []
-    all_flat_segments = {}
-
-    for inst_file in instruction_files:
-        try:
-            with open(inst_file, "r", encoding="utf-8") as f:
-                content = f.read()
-
-            tree_nodes = parse_instruction_to_tree(content)
-            for n in tree_nodes:
-                all_tree_dicts.append(n.to_dict())
-
-            flat = flatten_instruction_tree(tree_nodes)
-            all_flat_segments.update(flat)
-        except Exception as e:
-            print(f"Warning: Failed to parse instructions {inst_file}: {e}")
-
-    return all_tree_dicts, all_flat_segments
-
-
-def extract_dynamic_coverage(
-    agent_dir: Path, eval_files: List[Path], called_tools: Set[str]
-) -> Tuple[
-    List[Tuple[str, str]],
-    Dict[Tuple[str, str], List[str]],
-    List[Dict[str, Any]],
-    List[Dict[str, Any]],
-    List[Path],
-]:
+# Function to evaluate agent transfer coverage
+def extract_agent_transfers(
+    agent_dir: Path, eval_files: List[Path]
+) -> Tuple[List[Tuple[str, str]], Dict[Tuple[str, str], List[str]]]:
+    """Extracts declared and covered agent transfers from agents and
+    evaluations."""
     declared_transfers = []
     covered_transfers = {}
     agent_files = list((agent_dir / "agents").glob("**/*.json"))
@@ -493,18 +193,18 @@ def extract_dynamic_coverage(
                 )
                 target_agents = []
 
-                def find_target_agent(obj):
+                def find_target_agent(obj, ta_list):
                     if isinstance(obj, dict):
                         for k, v in obj.items():
                             if k == "targetAgent":
-                                target_agents.append(v)
+                                ta_list.append(v)
                             else:
-                                find_target_agent(v)
+                                find_target_agent(v, ta_list)
                     elif isinstance(obj, list):
                         for item in obj:
-                            find_target_agent(item)
+                            find_target_agent(item, ta_list)
 
-                find_target_agent(eval_data)
+                find_target_agent(eval_data, target_agents)
 
                 current_agent = next(iter(root_agents)) if root_agents else None
                 for target in target_agents:
@@ -518,112 +218,377 @@ def extract_dynamic_coverage(
             except Exception:
                 pass
 
-    intents = []
+    return declared_transfers, covered_transfers
+
+
+def analyze_instructions(
+    agent_dir: Path,
+) -> Tuple[List[Dict[str, Any]], List[Path]]:
+    """Discovers and parses all instruction.txt and instruction.* files
+    into instruction_segments."""
+    instruction_segments = []
     instruction_files = []
-    for af in (agent_dir / "agents").glob("**/instruction.*"):
-        if af.is_file():
-            instruction_files.append(af)
-            try:
-                with open(af, "r", encoding="utf-8") as f:
-                    content = f.read()
-                agent_name = af.parent.name
-                sections = re.findall(
-                    r"<([a-zA-Z0-9_-]+)>(.*?)</\1>", content, re.DOTALL
-                )
 
-                def add_intent(quote_lines, cat_name):
-                    q_text = " ".join(quote_lines).strip()
-                    if len(q_text) > 10:
-                        q_text = re.sub(r"^\d+[\.\)]\s*", "", q_text)
-                        q_text = re.sub(r"^[\-\*]\s*", "", q_text)
-                        q_text = q_text.strip()
-                        directive_title = " ".join(q_text.split()[:5])
-                        if len(directive_title) < len(q_text):
-                            directive_title += "..."
-                        intents.append(
-                            {
-                                "agent": agent_name,
-                                "category": cat_name,
-                                "directive": directive_title,
-                                "quote": f'"{q_text[:60]}..."'
-                                if len(q_text) > 60
-                                else f'"{q_text}"',
-                                "full_text": q_text,
-                            }
-                        )
+    def add_instruction_segment(quote_lines, cat_name, a_name):
+        q_text = " ".join(quote_lines).strip()
+        if len(q_text) > 10:
+            q_text = re.sub(r"^\d+[\.\)]\s*", "", q_text)
+            q_text = re.sub(r"^[\-\*]\s*", "", q_text)
+            q_text = q_text.strip()
+            directive_title = " ".join(q_text.split()[:5])
+            if len(directive_title) < len(q_text):
+                directive_title += "..."
+            instruction_segments.append(
+                {
+                    "agent": a_name,
+                    "category": cat_name,
+                    "directive": directive_title,
+                    "quote": f'"{q_text[:60]}..."'
+                    if len(q_text) > 60
+                    else f'"{q_text}"',
+                    "full_text": q_text,
+                }
+            )
 
-                for tag, text in sections:
-                    lines = text.split("\n")
-                    category = "Rules"
-                    tag_lower = tag.lower()
-                    if tag_lower in ("role", "persona", "voice"):
-                        category = "Persona"
-                    elif tag_lower in (
-                        "guidelines",
-                        "guideline",
-                        "out_of_scope",
-                        "condition",
-                        "trigger",
+    def parse_file(filepath: Path, agent_name: str):
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                content = f.read()
+            sections = re.findall(
+                r"<([a-zA-Z0-9_-]+)>(.*?)</\1>", content, re.DOTALL
+            )
+
+            for tag, text in sections:
+                lines = text.split("\n")
+                category = "Rules"
+                tag_lower = tag.lower()
+                if tag_lower in ("role", "persona", "voice"):
+                    category = "Persona"
+                elif tag_lower in (
+                    "guidelines",
+                    "guideline",
+                    "out_of_scope",
+                    "condition",
+                    "trigger",
+                ):
+                    category = (
+                        "Cond. Behavior"
+                        if tag_lower in ("condition", "trigger")
+                        else "Guardrails"
+                    )
+                elif tag_lower in ("taskflow", "subtask", "action", "step"):
+                    category = "Conv. Flow"
+
+                current_quote = []
+                for line in lines:
+                    stripped = line.strip()
+                    if not stripped:
+                        continue
+                    if (
+                        re.match(r"^\d+[\.\)]\s*", stripped)
+                        or stripped.startswith("-")
+                        or stripped.startswith("*")
                     ):
-                        category = (
-                            "Cond. Behavior"
-                            if tag_lower in ("condition", "trigger")
-                            else "Guardrails"
-                        )
-                    elif tag_lower in ("taskflow", "subtask", "action", "step"):
-                        category = "Conv. Flow"
-
-                    current_quote = []
-                    for line in lines:
-                        stripped = line.strip()
-                        if not stripped:
-                            continue
-                        if (
-                            re.match(r"^\d+[\.\)]\s*", stripped)
-                            or stripped.startswith("-")
-                            or stripped.startswith("*")
-                        ):
-                            if current_quote:
-                                add_intent(current_quote, category)
-                                current_quote = [stripped]
-                            else:
-                                current_quote = [stripped]
+                        if current_quote:
+                            add_instruction_segment(
+                                current_quote, category, agent_name
+                            )
+                            current_quote = [stripped]
                         else:
-                            current_quote.append(stripped)
-                    if current_quote:
-                        add_intent(current_quote, category)
+                            current_quote = [stripped]
+                    else:
+                        current_quote.append(stripped)
+                if current_quote:
+                    add_instruction_segment(current_quote, category, agent_name)
 
-                if not sections:
-                    lines = content.split("\n")
-                    current_quote = []
-                    for line in lines:
-                        stripped = line.strip()
-                        if not stripped:
-                            continue
-                        if (
-                            re.match(r"^\d+[\.\)]\s*", stripped)
-                            or stripped.startswith("-")
-                            or stripped.startswith("*")
-                        ):
-                            if current_quote:
-                                add_intent(current_quote, "Rules")
-                                current_quote = [stripped]
-                            else:
-                                current_quote = [stripped]
+            if not sections:
+                lines = content.split("\n")
+                current_quote = []
+                for line in lines:
+                    stripped = line.strip()
+                    if not stripped:
+                        continue
+                    if (
+                        re.match(r"^\d+[\.\)]\s*", stripped)
+                        or stripped.startswith("-")
+                        or stripped.startswith("*")
+                    ):
+                        if current_quote:
+                            add_instruction_segment(
+                                current_quote, "Rules", agent_name
+                            )
+                            current_quote = [stripped]
                         else:
-                            current_quote.append(stripped)
-                    if current_quote:
-                        add_intent(current_quote, "Rules")
-            except Exception:
-                pass
+                            current_quote = [stripped]
+                    else:
+                        current_quote.append(stripped)
+                if current_quote:
+                    add_instruction_segment(current_quote, "Rules", agent_name)
+        except Exception as e:
+            print(f"Warning: Failed to parse instructions {filepath}: {e}")
 
-    covered_intents = []
-    uncovered_intents = []
-    for intent in intents:
+    # Look for sub-agent instruction files recursively
+    agents_dir = agent_dir / "agents"
+    if agents_dir.exists() and agents_dir.is_dir():
+        for p in agents_dir.glob("**/instruction.*"):
+            if p.is_file():
+                instruction_files.append(p)
+                parse_file(p, p.parent.name)
+
+    p = agent_dir / "global_instruction.txt"
+    if p.is_file():
+        instruction_files.append(p)
+        parse_file(p, "Global")
+
+    return instruction_segments, instruction_files
+
+
+def extract_instruction_coverage(
+    instruction_segments: List[Dict[str, Any]],
+    eval_files: List[Path],
+    called_tools: Set[str],
+) -> Tuple[
+    List[Dict[str, Any]],
+    List[Dict[str, Any]],
+]:
+    """Uses Vector Embeddings and LLM-as-a-judge to determine instruction
+    instruction_segment coverage."""
+
+    eval_chunks = []
+    for ef in eval_files:
+        try:
+            eval_name = ef.stem
+            if ef.suffix in (".yaml", ".yml"):
+                with open(ef, "r", encoding="utf-8") as f:
+                    data = yaml.safe_load(f)
+                if not data:
+                    continue
+
+                # SCRAPI Golden Evals
+                if "conversations" in data:
+                    for conv in data.get("conversations", []):
+                        c_name = conv.get("conversation", "Unnamed")
+                        tags = conv.get("tags", [])
+
+                        turns_text = []
+                        for turn in conv.get("turns", []):
+                            user = turn.get("user", "")
+                            agent = turn.get("agent", "")
+                            turn_str = f"User: {user}\nAgent: {agent}"
+                            if "tool_calls" in turn:
+                                turn_str += (
+                                    f"\nTool Calls: "
+                                    f"{json.dumps(turn['tool_calls'])}"
+                                )
+                            turns_text.append(turn_str)
+
+                        if turns_text:
+                            eval_chunks.append(
+                                {
+                                    "text": (
+                                        f"Conversation: {c_name}\n"
+                                        f"Tags: {', '.join(tags)}\n"
+                                        + "\n".join(turns_text)
+                                    ),
+                                    "eval_name": c_name or eval_name,
+                                    "file_name": ef.name,
+                                }
+                            )
+
+                        expectations = conv.get("expectations", [])
+                        if expectations:
+                            eval_chunks.append(
+                                {
+                                    "text": (
+                                        f"Conversation: {c_name}\n"
+                                        "Expectations:\n"
+                                        + "\n".join(
+                                            f"- {exp}" for exp in expectations
+                                        )
+                                    ),
+                                    "eval_name": c_name or eval_name,
+                                    "file_name": ef.name,
+                                }
+                            )
+
+                # SCRAPI Simulation Evals
+                elif "evals" in data:
+                    for eval_item in data.get("evals", []):
+                        e_name = eval_item.get("name", "Unnamed")
+                        tags = eval_item.get("tags", [])
+
+                        steps_text = []
+                        for step in eval_item.get("steps", []):
+                            goal = step.get("goal", "")
+                            success = step.get("success_criteria", "")
+                            guide = step.get("response_guide", "")
+                            steps_text.append(
+                                f"Goal: {goal}\nSuccess Criteria: "
+                                f"{success}\nResponse Guide: {guide}"
+                            )
+
+                        if steps_text:
+                            eval_chunks.append(
+                                {
+                                    "text": (
+                                        f"Simulation Eval: {e_name}\n"
+                                        f"Tags: {', '.join(tags)}\n"
+                                        + "\n".join(steps_text)
+                                    ),
+                                    "eval_name": e_name or eval_name,
+                                    "file_name": ef.name,
+                                }
+                            )
+
+                        expectations = eval_item.get("expectations", [])
+                        if expectations:
+                            eval_chunks.append(
+                                {
+                                    "text": (
+                                        f"Simulation Eval: {e_name}\n"
+                                        "Expectations:\n"
+                                        + "\n".join(
+                                            f"- {exp}" for exp in expectations
+                                        )
+                                    ),
+                                    "eval_name": e_name or eval_name,
+                                    "file_name": ef.name,
+                                }
+                            )
+
+            elif ef.suffix == ".json":
+                with open(ef, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if isinstance(data, dict):
+                    eval_name = (
+                        data.get("displayName") or data.get("name") or ef.stem
+                    )
+                    golden = data.get("golden", {})
+                    for conv_idx, turn in enumerate(golden.get("turns", [])):
+                        steps = turn.get("steps", [])
+                        turn_text = []
+                        for step in steps:
+                            if "userInput" in step:
+                                turn_text.append(
+                                    f"User: {step['userInput'].get('text', '')}"
+                                )
+                            if "expectation" in step:
+                                exp = step["expectation"]
+                                if "note" in exp:
+                                    turn_text.append(
+                                        f"Expectation Note: {exp['note']}"
+                                    )
+                                if "agentTransfer" in exp:
+                                    target_ag = exp["agentTransfer"].get(
+                                        "targetAgent", ""
+                                    )
+                                    turn_text.append(
+                                        f"Expects Transfer to: {target_ag}"
+                                    )
+                                if "toolCall" in exp:
+                                    turn_text.append(
+                                        "Expects Tool Call: "
+                                        f"{exp['toolCall'].get('tool', '')}"
+                                    )
+                                if "updatedVariables" in exp:
+                                    turn_text.append(
+                                        "Expects Updated Variables: "
+                                        f"{json.dumps(exp['updatedVariables'])}"
+                                    )
+
+                        if turn_text:
+                            eval_chunks.append(
+                                {
+                                    "text": (
+                                        f"Native Eval: {eval_name} "
+                                        f"(Turn {conv_idx})\n"
+                                        + "\n".join(turn_text)
+                                    ),
+                                    "eval_name": eval_name,
+                                    "file_name": ef.name,
+                                }
+                            )
+        except Exception as e:
+            print(f"Warning: Failed to chunk evaluation file {ef}: {e}")
+
+    # Helper functions for cosine similarity
+    def dot_product(v1, v2):
+        """Calculates the dot product of two vectors."""
+        return sum(a * b for a, b in zip(v1, v2, strict=True))
+
+    def magnitude(v):
+        """Calculates the Euclidean magnitude of a vector."""
+        return math.sqrt(sum(a * a for a in v))
+
+    def cosine_similarity(v1, v2):
+        """Calculates the cosine similarity between two vectors."""
+        mag1 = magnitude(v1)
+        mag2 = magnitude(v2)
+        if not mag1 or not mag2:
+            return 0.0
+        return dot_product(v1, v2) / (mag1 * mag2)
+
+    project_id = os.environ.get("GOOGLE_CLOUD_PROJECT") or os.environ.get(
+        "GCP_PROJECT"
+    )
+    location = os.environ.get("GOOGLE_CLOUD_LOCATION") or "global"
+
+    print(f"Initializing Gemini Generate for (Project: {project_id})...")
+    gemini_client = GeminiGenerate(
+        project_id=project_id,
+        location=location,
+        model_name="gemini-2.5-flash",
+    )
+
+    instruction_segments_texts = [
+        instruction_segment["full_text"]
+        for instruction_segment in instruction_segments
+    ]
+    chunk_texts = [chunk["text"] for chunk in eval_chunks]
+
+    instruction_segment_embeddings = []
+    chunk_embeddings = []
+
+    if instruction_segments_texts:
+        print(
+            f"""Generating embeddings for {len(instruction_segments_texts)}
+            instruction segment(s)..."""
+        )
+        instruction_segment_embeddings = gemini_client.generate_embeddings(
+            contents=instruction_segments_texts
+        )
+
+    if chunk_texts:
+        print(f"Generating embeddings for {len(chunk_texts)} eval chunk(s)...")
+        chunk_embeddings = gemini_client.generate_embeddings(
+            contents=chunk_texts
+        )
+
+    class InstructionSegmentCoverageResult(BaseModel):
+        """Schema for the LLM evaluation of instruction segment coverage."""
+
+        is_covered: bool = Field(
+            description="""true if at least one evaluation chunk explicitly
+            tests the instruction, false otherwise."""
+        )
+        covering_chunk_index: int = Field(
+            description="""The 0-based index of the candidate chunk that tests
+                the instruction. Set to -1 if none."""
+        )
+        reasoning: str = Field(
+            description="""A brief reasoning string explaining the decision."""
+        )
+
+    covered_instruction_segments = []
+    uncovered_instruction_segments = []
+
+    print("Evaluating instruction coverage using Cosine Similarity and LLM...")
+    for i, instruction_segment in enumerate(instruction_segments):
         covered = False
         covering_evals = set()
-        text_to_check = intent["full_text"].lower()
 
+        # 1. Fallback / Immediate tool-call matching
+        text_to_check = instruction_segment["full_text"].lower()
         match_tool = re.search(r"\{@TOOL[:\s]+([^}]+)\}", text_to_check)
         if match_tool:
             tool_name = match_tool.group(1).strip()
@@ -633,72 +598,98 @@ def extract_dynamic_coverage(
                     try:
                         with open(ef, "r", encoding="utf-8") as f:
                             if tool_name in f.read():
-                                covered = True
                                 eval_name = ef.stem
-                                try:
-                                    if ef.suffix == ".json":
-                                        with open(
-                                            ef, "r", encoding="utf-8"
-                                        ) as f2:
-                                            eval_j = json.load(f2)
-                                            eval_name = (
-                                                eval_j.get("displayName")
-                                                or eval_j.get("name")
-                                                or ef.name
-                                            )
-                                except Exception:
-                                    pass
                                 covering_evals.add(eval_name)
                     except Exception:
                         pass
 
-        keywords = extract_keywords(text_to_check)
-        for ef in eval_files:
-            try:
-                with open(ef, "r", encoding="utf-8") as f:
-                    eval_content = f.read().lower()
-                if any(kw in eval_content for kw in keywords if len(kw) > 4):
-                    match_count = sum(
-                        1
-                        for kw in keywords
-                        if len(kw) > 4 and kw in eval_content
-                    )
-                    if match_count >= 2 or (
-                        len(keywords) == 1 and match_count == 1
-                    ):
-                        covered = True
-                        eval_name = ef.stem
-                        try:
-                            if ef.suffix == ".json":
-                                with open(ef, "r", encoding="utf-8") as f2:
-                                    eval_j = json.load(f2)
-                                    eval_name = (
-                                        eval_j.get("displayName")
-                                        or eval_j.get("name")
-                                        or ef.name
-                                    )
-                        except Exception:
-                            pass
-                        covering_evals.add(eval_name)
-            except Exception:
-                pass
+        # 2. Vector Embeddings + LLM Judge
+        if (
+            not covered
+            and i < len(instruction_segment_embeddings)
+            and instruction_segment_embeddings[i]
+            and chunk_embeddings
+        ):
+            i_embedding = instruction_segment_embeddings[i]
+            similarities = []
+            for j, c_embedding in enumerate(chunk_embeddings):
+                if c_embedding:
+                    sim = cosine_similarity(i_embedding, c_embedding)
+                    similarities.append((sim, j))
+                else:
+                    similarities.append((0.0, j))
 
-        intent["covered"] = "Yes" if covered else "No"
-        intent["evals"] = (
+            # Get top 4 most relevant chunks
+            similarities.sort(reverse=True, key=lambda x: x[0])
+            top_candidates = similarities[:4]
+
+            candidate_chunks = [
+                eval_chunks[idx] for sim, idx in top_candidates if sim > 0.0
+            ]
+
+            if candidate_chunks:
+                chunks_formatted_text = ""
+                for idx, c in enumerate(candidate_chunks):
+                    chunks_formatted_text += (
+                        f"\n--- CANDIDATE CHUNK {idx} ---\n{c['text']}\n"
+                    )
+
+                prompt = f"""
+                You are an expert LLM as a Judge determining evaluation coverage
+                for an AI Agent.
+
+                Agent Instruction to Test:
+                <INSTRUCTION>
+                {instruction_segment["full_text"]}
+                </INSTRUCTION>
+
+                Candidate Evaluation Chunks:
+                {chunks_formatted_text}
+
+                Analyze the Candidate Evaluation Chunks carefully.
+                Determine if ANY of these evaluation chunks explicitly test that
+                the Agent follows the provided Agent Instruction.
+                Answer true in `is_covered` if at least one evaluation chunk
+                explicitly tests the instruction, and identify the FIRST
+                covering chunk's index (0-based) in `covering_chunk_index`.
+                General instructions like "be nice" should be considered as
+                covered.
+                """
+                try:
+                    llm_response = gemini_client.generate(
+                        prompt=prompt,
+                        response_mime_type="application/json",
+                        response_schema=InstructionSegmentCoverageResult,
+                        temperature=0.0,
+                    )
+
+                    if llm_response:
+                        is_cov = getattr(llm_response, "is_covered", False)
+                        c_idx = getattr(
+                            llm_response, "covering_chunk_index", -1
+                        )
+
+                        if isinstance(llm_response, dict):
+                            is_cov = llm_response.get("is_covered", False)
+                            c_idx = llm_response.get("covering_chunk_index", -1)
+
+                        if is_cov and 0 <= c_idx < len(candidate_chunks):
+                            covered = True
+                            covering_chunk = candidate_chunks[c_idx]
+                            covering_evals.add(covering_chunk["eval_name"])
+                except Exception as e:
+                    print(f"LLM call failed for instruction segment {i}: {e}")
+
+        instruction_segment["covered"] = "Yes" if covered else "No"
+        instruction_segment["evals"] = (
             ", ".join(sorted(covering_evals)) if covering_evals else "None"
         )
         if covered:
-            covered_intents.append(intent)
+            covered_instruction_segments.append(instruction_segment)
         else:
-            uncovered_intents.append(intent)
+            uncovered_instruction_segments.append(instruction_segment)
 
-    return (
-        declared_transfers,
-        covered_transfers,
-        intents,
-        covered_intents,
-        instruction_files,
-    )
+    return instruction_segments, covered_instruction_segments
 
 
 def generate_report(
@@ -706,25 +697,22 @@ def generate_report(
     total_tools: Set[str],
     covered_tools: Set[str],
     phantom_tools_by_file: dict[Path, Set[str]],
-    flat_segments: Dict[str, InstructionSegment],
-    covered_segments: Set[str],
-    uncovered_by_category: Dict[str, List[str]],
     eval_files: List[Path],
     declared_transfers: List[Tuple[str, str]],
     covered_transfers: Dict[Tuple[str, str], List[str]],
-    intents: List[Dict[str, Any]],
-    covered_intents: List[Dict[str, Any]],
+    instruction_segments: List[Dict[str, Any]],
+    covered_instruction_segments: List[Dict[str, Any]],
     instruction_files: List[Path],
     agent_dir: Path,
 ) -> None:
-    """Generates a clean, highly comprehensive Markdown coverage report."""
+    """Generates a comprehensive Markdown coverage report."""
     uncovered_tools = total_tools - covered_tools
     tool_coverage_pct = (
         (len(covered_tools) / len(total_tools) * 100.0) if total_tools else 0.0
     )
 
-    total_segments = len(intents)
-    total_covered = len(covered_intents)
+    total_segments = len(instruction_segments)
+    total_covered = len(covered_instruction_segments)
     overall_segment_pct = (
         (total_covered / total_segments * 100.0) if total_segments else 0.0
     )
@@ -740,17 +728,17 @@ def generate_report(
     segment_counts = {"Static": 0, "Stateful": 0, "Conditional": 0, "Tool": 0}
     segment_covered = {"Static": 0, "Stateful": 0, "Conditional": 0, "Tool": 0}
 
-    for intent in intents:
+    for instruction_segment in instruction_segments:
         cat = "Static"
-        if intent["category"] in ("Cond. Behavior", "Guardrails"):
+        if instruction_segment["category"] in ("Cond. Behavior", "Guardrails"):
             cat = "Conditional"
-        elif intent["category"] in ("Conv. Flow",):
+        elif instruction_segment["category"] in ("Conv. Flow",):
             cat = "Stateful"
-        elif intent["category"] == "Tool":
+        elif instruction_segment["category"] == "Tool":
             cat = "Tool"
 
         segment_counts[cat] += 1
-        if intent["covered"] == "Yes":
+        if instruction_segment["covered"] == "Yes":
             segment_covered[cat] += 1
 
     report = []
@@ -771,13 +759,16 @@ def generate_report(
     report.append("| Metric | Total | Covered | Coverage % |")
     report.append("| :--- | :---: | :---: | :---: |")
     report.append(
-        f"| **Tool Integrations** | {len(total_tools)} | {len(covered_tools)} | {tool_coverage_pct:.1f}% |"
+        f"| **Tool Integrations** | {len(total_tools)} | "
+        f"{len(covered_tools)} | {tool_coverage_pct:.1f}% |"
     )
     report.append(
-        f"| **Instruction Intents** | {total_segments} | {total_covered} | {overall_segment_pct:.1f}% |"
+        f"| **Instruction Segments** | {total_segments} | "
+        f"{total_covered} | {overall_segment_pct:.1f}% |"
     )
     report.append(
-        f"| **Agent Transfers** | {total_transfers} | {total_transfers_covered} | {transfer_coverage_pct:.1f}% |"
+        f"| **Agent Transfers** | {total_transfers} | "
+        f"{total_transfers_covered} | {transfer_coverage_pct:.1f}% |"
     )
     report.append("\n")
 
@@ -791,8 +782,10 @@ def generate_report(
         else 0.0
     )
     report.append(
-        f"| **Static segments** | Global Instructions, Persona, Voice, Guidelines | "
-        f"{segment_counts['Static']} | {segment_covered['Static']} | {static_pct:.1f}% |"
+        "| **Static segments** | "
+        "Global Instructions, Persona, Voice, Guidelines | "
+        f"{segment_counts['Static']} | {segment_covered['Static']} | "
+        f"{static_pct:.1f}% |"
     )
 
     stateful_pct = (
@@ -801,8 +794,11 @@ def generate_report(
         else 0.0
     )
     report.append(
-        f"| **Stateful segments** | Context-dependent states (Slots)| "
-        f"{segment_counts['Stateful']} | {segment_covered['Stateful']} | {stateful_pct:.1f}% |"
+        f"| **Stateful segments** | "
+        "Context-dependent states (Slots)| "
+        f"{segment_counts['Stateful']} | "
+        f"{segment_covered['Stateful']} | "
+        f"{stateful_pct:.1f}% |"
     )
 
     cond_pct = (
@@ -811,20 +807,23 @@ def generate_report(
         else 0.0
     )
     report.append(
-        f"| **Conditional segments** | Branching logic Conditions, Routing | "
-        f"{segment_counts['Conditional']} | {segment_covered['Conditional']} | {cond_pct:.1f}% |"
+        "| **Conditional segments** | "
+        "Branching logic Conditions, Routing | "
+        f"{segment_counts['Conditional']} | "
+        f"{segment_covered['Conditional']} | "
+        f"{cond_pct:.1f}% |"
     )
 
     report.append("\n---\n")
 
     report.append("## Uncovered segments\n")
     has_uncovered = False
-    for intent in intents:
-        if intent["covered"] == "No":
+    for instruction_segment in instruction_segments:
+        if instruction_segment["covered"] == "No":
             if not has_uncovered:
                 report.append("### Uncovered Segments")
                 has_uncovered = True
-            report.append(f"*   `{intent['directive']}`")
+            report.append(f"*   `{instruction_segment['directive']}`")
 
     if not has_uncovered:
         report.append("All instruction segments are 100% covered by tests.")
@@ -876,14 +875,15 @@ def generate_report(
         "### Instruction Segments to Evaluation Files Detailed Mapping\n"
     )
     report.append(
-        "| # | Agent | Category | Instruction Quote | Covered? | Covering Eval(s) |"
+        "| # | Agent | Category | Instruction Quote | Covered? | "
+        "Covering Eval(s) |\n"
+        "|---|-------|----------|-------------------|----------|"
+        "-------------------|"
     )
-    report.append(
-        "|---|-------|----------|-------------------|----------|-------------------|"
-    )
-    for idx, intent in enumerate(intents, start=1):
+    for idx, s in enumerate(instruction_segments, start=1):
         report.append(
-            f"| {idx} | {intent['agent']} | {intent['category']} | {intent['quote']} | {intent['covered']} | {intent['evals']} |"
+            f"| {idx} | {s['agent']} | {s['category']} | {s['quote']} | "
+            f"{s['covered']} | {s['evals']} |"
         )
     report.append("")
 
@@ -905,43 +905,12 @@ def generate_report(
     print(f"Successfully generated coverage report at: {output_file}")
 
 
-def calculate_segment_coverage(
-    flat_segments: Dict[str, InstructionSegment],
-    eval_texts: Set[str],
-    called_tools: Set[str],
-    agent_dir=None,
-) -> Tuple[Set[str], Dict[str, List[str]]]:
-    covered_segments = set()
-    uncovered_by_category = {
-        "Static": [],
-        "Stateful": [],
-        "Conditional": [],
-        "Tool": [],
-    }
-    for segment_id, segment in flat_segments.items():
-        covered = False
-        if segment.category == "Tool":
-            tool_name = segment.attributes.get("name", "")
-            covered = tool_name in called_tools
-        if covered:
-            covered_segments.add(segment_id)
-        else:
-            cat = segment.category
-            if cat in uncovered_by_category:
-                uncovered_by_category[cat].append(segment_id)
-    return covered_segments, uncovered_by_category
-
-
 def run_coverage_analysis(
     agent_dir: Path,
 ) -> Tuple[
     Set[str],
     Set[str],
     Dict[Path, Set[str]],
-    List[Dict[str, Any]],
-    Dict[str, InstructionSegment],
-    Set[str],
-    Dict[str, List[str]],
     List[Path],
     Set[str],
 ]:
@@ -995,20 +964,10 @@ def run_coverage_analysis(
         covered_tools.update(file_tools & all_tools)
         called_tools.update(file_tools)
 
-    instruction_tree, flat_segments = analyze_instructions(agent_dir)
-
-    covered_segments, uncovered_by_category = calculate_segment_coverage(
-        flat_segments, eval_texts, called_tools, agent_dir
-    )
-
     return (
         all_tools,
         covered_tools,
         phantom_tools_by_file,
-        instruction_tree,
-        flat_segments,
-        covered_segments,
-        uncovered_by_category,
         eval_files,
         called_tools,
     )
@@ -1026,38 +985,49 @@ def main():
         required=True,
         help="File path to save markdown coverage report.",
     )
+    parser.add_argument(
+        "--project-id",
+        help="Google Cloud Project ID for Gemini embeddings and LLM judge.",
+    )
+    parser.add_argument(
+        "--location",
+        default="global",
+        help="Google Cloud location for Gemini services (default: global).",
+    )
     args = parser.parse_args()
 
     agent_dir = Path(args.agent_dir)
     output_file = Path(args.output_file)
 
+    if args.project_id:
+        os.environ["GOOGLE_CLOUD_PROJECT"] = args.project_id
+    if args.location:
+        os.environ["GOOGLE_CLOUD_LOCATION"] = args.location
+
     (
         all_tools,
         covered_tools,
         phantom_tools_by_file,
-        instruction_tree,
-        flat_segments,
-        covered_segments,
-        uncovered_by_category,
         eval_files,
         called_tools,
     ) = run_coverage_analysis(agent_dir)
 
-    (
-        declared_transfers,
-        covered_transfers,
-        intents,
-        covered_intents,
-        instruction_files,
-    ) = extract_dynamic_coverage(agent_dir, eval_files, called_tools)
+    declared_transfers, covered_transfers = extract_agent_transfers(
+        agent_dir, eval_files
+    )
 
-    print(f"Found {len(all_tools)} tool definition(s).")
-    print(f"Found {len(flat_segments)} instruction segment(s).")
-    print(f"Found {len(eval_files)} evaluation file(s).")
+    instruction_segments, instruction_files = analyze_instructions(agent_dir)
+
+    instruction_segments, covered_instruction_segments = (
+        extract_instruction_coverage(
+            instruction_segments, eval_files, called_tools
+        )
+    )
 
     if phantom_tools_by_file:
         print(
-            "\n[WARNING] Detected tools that are referenced in evaluations but do not exist in the tools directory:"
+            "\n[WARNING] Detected tools that are referenced in evaluations "
+            "but do not exist in the tools directory:"
         )
         for ef, phantoms in sorted(phantom_tools_by_file.items()):
             try:
@@ -1066,7 +1036,8 @@ def main():
                 rel_path = ef
             print(f"  - {rel_path}: {', '.join(sorted(phantoms))}")
         print(
-            "Please verify if these tools were renamed, deleted, or misspelled.\n"
+            "Please verify if these tools were renamed, deleted, or "
+            "misspelled.\n"
         )
 
     generate_report(
@@ -1074,14 +1045,11 @@ def main():
         all_tools,
         covered_tools,
         phantom_tools_by_file,
-        flat_segments,
-        covered_segments,
-        uncovered_by_category,
         eval_files,
         declared_transfers,
         covered_transfers,
-        intents,
-        covered_intents,
+        instruction_segments,
+        covered_instruction_segments,
         instruction_files,
         agent_dir,
     )
