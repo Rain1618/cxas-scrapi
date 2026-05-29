@@ -65,7 +65,9 @@ def derive_callback_name(field_name):
     return field_name
 
 
-def sync_agent_callbacks(app_name, agent_name, dry_run=False):
+def sync_agent_callbacks(
+    app_name, agent_name, agent_resource_name, dry_run=False
+):
     """Sync callbacks for a single agent.
 
     Returns (synced, tests_found, tests_missing).
@@ -76,7 +78,7 @@ def sync_agent_callbacks(app_name, agent_name, dry_run=False):
         app_name=app_name, user_agent_extension=USER_AGENT_EXTENSION
     )
     try:
-        cb_map = callbacks_client.list_callbacks(agent_name)
+        cb_map = callbacks_client.list_callbacks(agent_resource_name)
     except Exception as e:
         print(f"  Error: Failed to list callbacks for '{agent_name}': {e}")
         return 0, 0, 0
@@ -385,7 +387,7 @@ def main():
         print(f"\n--- {agent_name} ---")
 
         s, tf, tm = sync_agent_callbacks(
-            app_name, agent_name, dry_run=args.dry_run
+            app_name, agent_name, agent.name, dry_run=args.dry_run
         )
         total_synced += s
         total_tests_found += tf
