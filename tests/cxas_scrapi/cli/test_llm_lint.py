@@ -17,7 +17,6 @@ import argparse
 import json
 from pathlib import Path
 from unittest import mock
-import pytest
 
 from cxas_scrapi.cli.llm_lint import llm_lint, resolve_gcp_credentials
 from cxas_scrapi.prompts import LLM_LINT_SYSTEM_PROMPT, LLM_LINT_USER_PROMPT
@@ -68,7 +67,9 @@ def test_llm_lint_success(mock_gemini_cls, tmp_path):
     agent_dir = tmp_path / "agents" / "my-agent"
     agent_dir.mkdir(parents=True)
     instruction_file = agent_dir / "instruction.txt"
-    instruction_file.write_text("Don't use generic responses.", encoding="utf-8")
+    instruction_file.write_text(
+        "Don't use generic responses.", encoding="utf-8"
+    )
 
     # Create active project gecx-config.json
     config_path = tmp_path / "gecx-config.json"

@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""CLI subcommand for AI-driven semantic linter on GECX sub-agent instructions."""
+"""CLI subcommand for AI-driven semantic linter on GECX instructions."""
 
 import argparse
 import json
@@ -165,8 +165,9 @@ def llm_lint(args: argparse.Namespace) -> None:
         model_name=args.model,
     )
 
-    # Build Prompts
-    user_prompt = LLM_LINT_USER_PROMPT.format(instruction_content=instruction_content)
+    user_prompt = LLM_LINT_USER_PROMPT.format(
+        instruction_content=instruction_content
+    )
 
     print(
         "Running semantic review using Gemini (this may take a few seconds)..."
