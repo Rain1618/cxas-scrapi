@@ -23,4 +23,3 @@ __all__ = [
     "LLM_LINT_SYSTEM_PROMPT",
     "LLM_LINT_USER_PROMPT",
 ]
-

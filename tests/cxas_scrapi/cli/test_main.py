@@ -42,19 +42,21 @@ def test_get_parser():
 def test_get_parser_llm_lint():
     """Test that the parser can parse the llm-lint command."""
     parser = get_parser()
-    args = parser.parse_args([
-        "llm-lint",
-        "--agent-dir",
-        "/path/to/agent",
-        "--project-id",
-        "test-project",
-        "--location",
-        "us-central1",
-        "--model",
-        "gemini-2.5-flash",
-        "--output",
-        "/path/to/output.md",
-    ])
+    args = parser.parse_args(
+        [
+            "llm-lint",
+            "--agent-dir",
+            "/path/to/agent",
+            "--project-id",
+            "test-project",
+            "--location",
+            "us-central1",
+            "--model",
+            "gemini-2.5-flash",
+            "--output",
+            "/path/to/output.md",
+        ]
+    )
     assert args.command == "llm-lint"
     assert args.agent_dir == "/path/to/agent"
     assert args.project_id == "test-project"
