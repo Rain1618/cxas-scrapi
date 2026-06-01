@@ -18,14 +18,11 @@ import json
 import math
 import os
 import re
-from pathlib import Path
 from typing import Any, Dict, List, Set, Tuple
 
-import yaml
 from pydantic import BaseModel, Field
 
 from cxas_scrapi.utils.gemini import GeminiGenerate
-from utils import parse_instruction_content
 
 class CategorizationResult(BaseModel):
     """Schema for LLM categorization of instruction segments."""
@@ -42,43 +39,30 @@ class SentimentAnalysisResult(BaseModel):
     )
     reasoning: str = Field(description="Reason for the decision")
 
+class InstructionSegmentCoverageResult(BaseModel):
+    """Schema for the LLM evaluation of instruction segment coverage."""
 
-def analyze_instructions(
-    agent_dir: Path,
+    is_covered: bool = Field(
+        description="""true if at least one evaluation chunk explicitly
+        tests the instruction, false otherwise."""
+    )
+    covering_chunk_index: int = Field(
+        description="""The 0-based index of the candidate chunk that tests
+            the instruction. Set to -1 if none."""
+    )
+    reasoning: str = Field(
+        description="""A brief reasoning string explaining the decision."""
+    )
+
+def analyze_instruction_categories(
+    instruction_segments: List[Dict[str, Any]],
     gemini_client: GeminiGenerate = None,
-) -> Tuple[List[Dict[str, Any]], List[Path]]:
-    """Discovers and parses all instruction.txt and instruction.* files
-    into instruction_segments."""
-    instruction_segments = []
-    instruction_files = []
-
-    def parse_file(filepath: Path, agent_name: str):
-        try:
-            with open(filepath, "r", encoding="utf-8") as f:
-                content = f.read()
-            segments = parse_instruction_content(content, agent_name)
-            instruction_segments.extend(segments)
-        except Exception as e:
-            print(f"Warning: Failed to parse instructions {filepath}: {e}")
-
-    # Look for sub-agent instruction files recursively
-    agents_dir = agent_dir / "agents"
-    if agents_dir.exists() and agents_dir.is_dir():
-        for p in agents_dir.glob("**/instruction.*"):
-            if p.is_file():
-                instruction_files.append(p)
-                parse_file(p, p.parent.name)
-
-    p = agent_dir / "global_instruction.txt"
-    if p.is_file():
-        instruction_files.append(p)
-        parse_file(p, "Global")
-
+) -> List[Dict[str, Any]]:
+    """Runs LLM classification on instruction segments to categorize them."""
     if gemini_client and instruction_segments:
         print(f"Categorizing {len(instruction_segments)} instruction segment(s) using LLM...")
         for segment in instruction_segments:
             prompt = f"""
-            You are an expert in AI Agent design.
             Categorize the following AI Agent instruction into one of two categories:
             - 'Functional Intent': Explicit actions, API executions, or data retrievals (e.g., "Calculate the user's outstanding balance").
             - 'Behavioral Constraint': Quality, tone, persona, or safety guardrails (e.g., "Be nice and welcoming").
@@ -119,44 +103,12 @@ def analyze_instructions(
                      else:
                          segment["category"] = "Functional Intent"
 
-    return instruction_segments, instruction_files
-
-
-def extract_all_user_prompts(eval_files: List[Path]) -> List[str]:
-    """Extracts all user prompts from evaluation files."""
-    user_prompts = []
-    for ef in eval_files:
-        try:
-            if ef.suffix in (".yaml", ".yml"):
-                with open(ef, "r", encoding="utf-8") as f:
-                    data = yaml.safe_load(f)
-                if not data:
-                    continue
-                if "conversations" in data:
-                    for conv in data.get("conversations", []):
-                        for turn in conv.get("turns", []):
-                            user = turn.get("user", "")
-                            if user:
-                                user_prompts.append(user)
-            elif ef.suffix == ".json":
-                with open(ef, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                if isinstance(data, dict):
-                    golden = data.get("golden", {})
-                    for turn in golden.get("turns", []):
-                        for step in turn.get("steps", []):
-                            if "userInput" in step:
-                                text = step["userInput"].get("text", "")
-                                if text:
-                                    user_prompts.append(text)
-        except Exception as e:
-            print(f"Warning: Failed to extract user prompts from {ef}: {e}")
-    return user_prompts
+    return instruction_segments
 
 
 def extract_instruction_coverage(
     instruction_segments: List[Dict[str, Any]],
-    eval_files: List[Path],
+    eval_chunks: List[Dict[str, Any]],
     called_tools: Set[str],
     gemini_client: GeminiGenerate = None,
 ) -> Tuple[
@@ -164,164 +116,7 @@ def extract_instruction_coverage(
     List[Dict[str, Any]],
 ]:
     """Uses Vector Embeddings and LLM-as-a-judge to determine instruction
-    instruction_segment coverage."""
-
-    eval_chunks = []
-    for ef in eval_files:
-        try:
-            eval_name = ef.stem
-            if ef.suffix in (".yaml", ".yml"):
-                with open(ef, "r", encoding="utf-8") as f:
-                    data = yaml.safe_load(f)
-                if not data:
-                    continue
-
-                # SCRAPI Golden Evals
-                if "conversations" in data:
-                    for conv in data.get("conversations", []):
-                        c_name = conv.get("conversation", "Unnamed")
-                        tags = conv.get("tags", [])
-
-                        turns_text = []
-                        for turn in conv.get("turns", []):
-                            user = turn.get("user", "")
-                            agent = turn.get("agent", "")
-                            turn_str = f"User: {user}\nAgent: {agent}"
-                            if "tool_calls" in turn:
-                                turn_str += (
-                                    f"\nTool Calls: "
-                                    f"{json.dumps(turn['tool_calls'])}"
-                                )
-                            turns_text.append(turn_str)
-
-                        if turns_text:
-                            eval_chunks.append(
-                                {
-                                    "text": (
-                                        f"Conversation: {c_name}\n"
-                                        f"Tags: {', '.join(tags)}\n"
-                                        + "\n".join(turns_text)
-                                    ),
-                                    "eval_name": c_name or eval_name,
-                                    "file_name": ef.name,
-                                }
-                            )
-
-                        expectations = conv.get("expectations", [])
-                        if expectations:
-                            eval_chunks.append(
-                                {
-                                    "text": (
-                                        f"Conversation: {c_name}\n"
-                                        "Expectations:\n"
-                                        + "\n".join(
-                                            f"- {exp}" for exp in expectations
-                                        )
-                                    ),
-                                    "eval_name": c_name or eval_name,
-                                    "file_name": ef.name,
-                                }
-                            )
-
-                # SCRAPI Simulation Evals
-                elif "evals" in data:
-                    for eval_item in data.get("evals", []):
-                        e_name = eval_item.get("name", "Unnamed")
-                        tags = eval_item.get("tags", [])
-
-                        steps_text = []
-                        for step in eval_item.get("steps", []):
-                            goal = step.get("goal", "")
-                            success = step.get("success_criteria", "")
-                            guide = step.get("response_guide", "")
-                            steps_text.append(
-                                f"Goal: {goal}\nSuccess Criteria: "
-                                f"{success}\nResponse Guide: {guide}"
-                            )
-
-                        if steps_text:
-                            eval_chunks.append(
-                                {
-                                    "text": (
-                                        f"Simulation Eval: {e_name}\n"
-                                        f"Tags: {', '.join(tags)}\n"
-                                        + "\n".join(steps_text)
-                                    ),
-                                    "eval_name": e_name or eval_name,
-                                    "file_name": ef.name,
-                                }
-                            )
-
-                        expectations = eval_item.get("expectations", [])
-                        if expectations:
-                            eval_chunks.append(
-                                {
-                                    "text": (
-                                        f"Simulation Eval: {e_name}\n"
-                                        "Expectations:\n"
-                                        + "\n".join(
-                                            f"- {exp}" for exp in expectations
-                                        )
-                                    ),
-                                    "eval_name": e_name or eval_name,
-                                    "file_name": ef.name,
-                                }
-                            )
-
-            elif ef.suffix == ".json":
-                with open(ef, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                if isinstance(data, dict):
-                    eval_name = (
-                        data.get("displayName") or data.get("name") or ef.stem
-                    )
-                    golden = data.get("golden", {})
-                    for conv_idx, turn in enumerate(golden.get("turns", [])):
-                        steps = turn.get("steps", [])
-                        turn_text = []
-                        for step in steps:
-                            if "userInput" in step:
-                                turn_text.append(
-                                    f"User: {step['userInput'].get('text', '')}"
-                                )
-                            if "expectation" in step:
-                                exp = step["expectation"]
-                                if "note" in exp:
-                                    turn_text.append(
-                                        f"Expectation Note: {exp['note']}"
-                                    )
-                                if "agentTransfer" in exp:
-                                    target_ag = exp["agentTransfer"].get(
-                                        "targetAgent", ""
-                                    )
-                                    turn_text.append(
-                                        f"Expects Transfer to: {target_ag}"
-                                    )
-                                if "toolCall" in exp:
-                                    turn_text.append(
-                                        "Expects Tool Call: "
-                                        f"{exp['toolCall'].get('tool', '')}"
-                                    )
-                                if "updatedVariables" in exp:
-                                    turn_text.append(
-                                        "Expects Updated Variables: "
-                                        f"{json.dumps(exp['updatedVariables'])}"
-                                    )
-
-                        if turn_text:
-                            eval_chunks.append(
-                                {
-                                    "text": (
-                                        f"Native Eval: {eval_name} "
-                                        f"(Turn {conv_idx})\n"
-                                        + "\n".join(turn_text)
-                                    ),
-                                    "eval_name": eval_name,
-                                    "file_name": ef.name,
-                                }
-                            )
-        except Exception as e:
-            print(f"Warning: Failed to chunk evaluation file {ef}: {e}")
+    segment coverage against pre-computed eval chunks."""
 
     # Helper functions for cosine similarity
     def dot_product(v1, v2):
@@ -339,61 +134,6 @@ def extract_instruction_coverage(
         if not mag1 or not mag2:
             return 0.0
         return dot_product(v1, v2) / (mag1 * mag2)
-
-    behavioral_constraints = [
-        s["full_text"]
-        for s in instruction_segments
-        if s.get("category") == "Behavioral Constraint"
-    ]
-    persona_text = "\n".join(f"- {c}" for c in behavioral_constraints)
-
-    if not persona_text:
-        persona_text = "Standard professional, helpful, and polite AI Agent persona."
-
-    user_prompts = extract_all_user_prompts(eval_files)
-    has_behavioral_diversity = False
-
-    if gemini_client and user_prompts:
-        print(f"Analyzing {len(user_prompts)} user prompt(s) for behavioral diversity (dynamic persona)...")
-        # Sample prompts if too many to avoid context window blowup
-        sampled_prompts = user_prompts[:100] # Adjust as needed
-        prompts_text = "\n".join(f"- {p}" for p in sampled_prompts)
-
-        prompt = f"""
-        You are an expert LLM as a Judge determining evaluation coverage for an AI Agent.
-        Analyze the following set of user prompts and/or evaluation chunks used in AI Agent evaluation tests.
-
-        The AI Agent is configured with the following persona and behavioral constraints:
-        <PERSONA_AND_BEHAVIORAL_CONSTRAINTS>
-        {persona_text}
-        </PERSONA_AND_BEHAVIORAL_CONSTRAINTS>
-
-        Determine if the test suite gives the AI Agent a meaningful opportunity to demonstrate that it follows its defined persona and behavioral constraints (e.g., in Simulation Evals, Golden Evals, or conversational steps).
-        - If the evaluation suite provides scenarios, conversations, or goals where the Agent's persona can naturally be expressed or validated (e.g., polite phrasing, helpfulness, professional tone, or simple adherence to persona rules), respond with `true` in `has_behavioral_diversity`.
-        - ONLY respond with `false` if the evaluations completely lack any user inputs, or if the defined persona includes highly specific, strict, or critical behavioral boundaries and guardrails (e.g., "never discuss pricing", "do not mention competitor X") that are completely untested or unexplored in the provided evaluation chunks.
-
-        User Prompts / Scenarios to Analyze:
-        {prompts_text}
-        """
-        try:
-            llm_response = gemini_client.generate(
-                prompt=prompt,
-                response_mime_type="application/json",
-                response_schema=SentimentAnalysisResult,
-                temperature=0.0,
-                model_name="gemini-2.5-flash",
-            )
-            if llm_response:
-                has_behavioral_diversity = getattr(llm_response, "has_behavioral_diversity", False)
-                if isinstance(llm_response, dict):
-                    has_behavioral_diversity = llm_response.get("has_behavioral_diversity", False)
-                print(f"Behavioral Diversity Analysis Result: {has_behavioral_diversity}")
-        except Exception as e:
-            print(f"Warning: Dynamic persona sentiment analysis failed: {e}")
-            has_behavioral_diversity = False # Default to False on failure to be conservative
-    elif not user_prompts:
-        print("No explicit user prompts found for behavioral diversity analysis.")
-        has_behavioral_diversity = False
 
     if not gemini_client:
         project_id = os.environ.get("GOOGLE_CLOUD_PROJECT") or os.environ.get(
@@ -432,23 +172,7 @@ def extract_instruction_coverage(
             contents=chunk_texts
         )
 
-    class InstructionSegmentCoverageResult(BaseModel):
-        """Schema for the LLM evaluation of instruction segment coverage."""
-
-        is_covered: bool = Field(
-            description="""true if at least one evaluation chunk explicitly
-            tests the instruction, false otherwise."""
-        )
-        covering_chunk_index: int = Field(
-            description="""The 0-based index of the candidate chunk that tests
-                the instruction. Set to -1 if none."""
-        )
-        reasoning: str = Field(
-            description="""A brief reasoning string explaining the decision."""
-        )
-
     covered_instruction_segments = []
-    uncovered_instruction_segments = []
 
     print("Evaluating instruction coverage using Cosine Similarity and LLM...")
     for i, instruction_segment in enumerate(instruction_segments):
@@ -462,14 +186,9 @@ def extract_instruction_coverage(
             tool_name = match_tool.group(1).strip()
             if tool_name in called_tools:
                 covered = True
-                for ef in eval_files:
-                    try:
-                        with open(ef, "r", encoding="utf-8") as f:
-                            if tool_name in f.read():
-                                eval_name = ef.stem
-                                covering_evals.add(eval_name)
-                    except Exception:
-                        pass
+                for chunk in eval_chunks:
+                    if tool_name in chunk["text"]:
+                        covering_evals.add(chunk["eval_name"])
 
         # 2. Vector Embeddings + LLM Judge
         if (
@@ -550,7 +269,6 @@ def extract_instruction_coverage(
             covered_instruction_segments.append(instruction_segment)
         else:
             instruction_segment["covered"] = "No"
-            uncovered_instruction_segments.append(instruction_segment)
 
         instruction_segment["evals"] = (
             ", ".join(sorted(covering_evals)) if covering_evals else "None"

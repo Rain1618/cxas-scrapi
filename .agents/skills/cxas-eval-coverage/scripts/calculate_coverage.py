@@ -16,151 +16,20 @@
 """Main execution script for GECX evaluation coverage analyzer."""
 
 import argparse
-import json
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Set, Tuple
 
 from cxas_scrapi.utils.gemini import GeminiGenerate
-from instruction_coverage import analyze_instructions, extract_instruction_coverage
-from tools_coverage import (
-    find_tools,
-    parse_golden_evals,
-    parse_native_json_evals,
-    parse_simulation_evals,
-)
+from ingestion import ingest_agent_project
+from instruction_coverage import analyze_instruction_categories, extract_instruction_coverage
 
-
-# Function to evaluate agent transfer coverage
-def extract_agent_transfers(
-    agent_dir: Path, eval_files: List[Path]
-) -> Tuple[List[Tuple[str, str]], Dict[Tuple[str, str], List[str]]]:
-    """Extracts declared and covered agent transfers from agents and
-    evaluations."""
-    declared_transfers = []
-    covered_transfers = {}
-    agent_files = list((agent_dir / "agents").glob("**/*.json"))
-
-    agents = {}
-    root_agents = set()
-    for af in agent_files:
-        try:
-            with open(af, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            display_name = data.get("displayName")
-            agents[display_name] = data
-            root_agents.add(display_name)
-        except Exception:
-            pass
-
-    for display_name, data in agents.items():
-        children = data.get("childAgents", [])
-        for child in children:
-            root_agents.discard(child)
-            declared_transfers.append((display_name, child))
-            for c2 in children:
-                if child != c2:
-                    declared_transfers.append((child, c2))
-
-    for ef in eval_files:
-        if ef.suffix == ".json":
-            try:
-                with open(ef, "r", encoding="utf-8") as f:
-                    eval_data = json.load(f)
-                eval_name = (
-                    eval_data.get("displayName")
-                    or eval_data.get("name")
-                    or ef.name
-                )
-                target_agents = []
-
-                def find_target_agent(obj, ta_list):
-                    if isinstance(obj, dict):
-                        for k, v in obj.items():
-                            if k == "targetAgent":
-                                ta_list.append(v)
-                            else:
-                                find_target_agent(v, ta_list)
-                    elif isinstance(obj, list):
-                        for item in obj:
-                            find_target_agent(item, ta_list)
-
-                find_target_agent(eval_data, target_agents)
-
-                current_agent = next(iter(root_agents)) if root_agents else None
-                for target in target_agents:
-                    if current_agent and target:
-                        edge = (current_agent, target)
-                        if edge not in covered_transfers:
-                            covered_transfers[edge] = []
-                        if eval_name not in covered_transfers[edge]:
-                            covered_transfers[edge].append(eval_name)
-                        current_agent = target
-            except Exception:
-                pass
-
-    return declared_transfers, covered_transfers
-
-
-#For tools only. Rename the function. TODO
-def run_coverage_analysis(
-    agent_dir: Path,
-) -> Tuple[
-    Set[str],
-    Set[str],
-    Dict[Path, Set[str]],
-    List[Path],
-    Set[str],
-]:
-    tools_dir = agent_dir / "tools"
-    eval_dir = agent_dir / "evaluations"
-    eval_dataset_dir = agent_dir / "evaluationDatasets"
-
-    all_tools = find_tools(tools_dir)
-
-    eval_files = []
-    for d in (eval_dir, eval_dataset_dir):
-        if d.exists():
-            for p in d.glob("**/*"):
-                if p.is_file() and p.suffix in (".json", ".yaml", ".yml"):
-                    eval_files.append(p)
-
-    covered_tools = set()
-    phantom_tools_by_file = {}
-    called_tools = set()
-
-    for ef in eval_files:
-        file_tools = set()
-        if ef.suffix == ".json":
-            native_tools = parse_native_json_evals(ef)
-            file_tools.update(native_tools)
-        elif ef.suffix in (".yaml", ".yml"):
-            gold_tools = parse_golden_evals(ef)
-            file_tools.update(gold_tools)
-
-            sim_tools = parse_simulation_evals(ef, all_tools)
-            file_tools.update(sim_tools)
-
-        phantoms = file_tools - all_tools - {"end_session"}
-        if phantoms:
-            phantom_tools_by_file[ef] = phantoms
-
-        covered_tools.update(file_tools & all_tools)
-        called_tools.update(file_tools)
-
-    return (
-        all_tools,
-        covered_tools,
-        phantom_tools_by_file,
-        eval_files,
-        called_tools,
-    )
 
 def generate_report(
     output_file: Path,
     total_tools: Set[str],
     covered_tools: Set[str],
-    phantom_tools_by_file: dict[Path, Set[str]],
+    phantom_tools_by_file: Dict[Path, Set[str]],
     eval_files: List[Path],
     declared_transfers: List[Tuple[str, str]],
     covered_transfers: Dict[Tuple[str, str], List[str]],
@@ -169,7 +38,6 @@ def generate_report(
     instruction_files: List[Path],
     agent_dir: Path,
 ) -> None:
-
     """Generates a comprehensive Markdown coverage report."""
     uncovered_tools = total_tools - covered_tools
     tool_coverage_pct = (
@@ -193,16 +61,11 @@ def generate_report(
     category_counts = {}
     category_covered_counts = {}
 
-    category_covered_counts = {}
-    category_incomplete_counts = {}
-
     for instruction_segment in instruction_segments:
         cat = instruction_segment["category"]
         category_counts[cat] = category_counts.get(cat, 0) + 1
         if instruction_segment["covered"] == "Yes":
             category_covered_counts[cat] = category_covered_counts.get(cat, 0) + 1
-        elif instruction_segment["covered"] == "Incomplete":
-            category_incomplete_counts[cat] = category_incomplete_counts.get(cat, 0) + 1
 
     report = []
     report.append("# Evaluation Coverage Report\n")
@@ -236,27 +99,25 @@ def generate_report(
     report.append("\n")
 
     report.append("## Instruction Segment Category Breakdown\n")
-    report.append("| Category | Total | Covered | Incomplete | Coverage % |")
-    report.append("| :--- | :---: | :---: | :---: | :---: |")
+    report.append("| Category | Total | Covered | Coverage % |")
+    report.append("| :--- | :---: | :---: | :---: |")
 
     for cat in sorted(category_counts.keys()):
         total = category_counts[cat]
         covered = category_covered_counts.get(cat, 0)
-        incomplete = category_incomplete_counts.get(cat, 0)
-        # Count "Yes" as fully covered, "Incomplete" as not covered for percentage
         pct = (covered / total * 100.0) if total else 0.0
         report.append(
-            f"| **{cat}** | {total} | {covered} | {incomplete} | {pct:.1f}% |"
+            f"| **{cat}** | {total} | {covered} | {pct:.1f}% |"
         )
 
     report.append("\n---\n")
 
-    report.append("## Uncovered or Incompletely Covered Segments\n")
+    report.append("## Uncovered Segments\n")
     has_uncovered = False
     for instruction_segment in instruction_segments:
-        if instruction_segment["covered"] in ["No", "Incomplete"]:
+        if instruction_segment["covered"] == "No":
             if not has_uncovered:
-                report.append("### Uncovered / Incomplete Segments")
+                report.append("### Uncovered Segments")
                 has_uncovered = True
             status = instruction_segment["covered"]
             report.append(f"*   `{instruction_segment['directive']}` ({status})")
@@ -340,6 +201,7 @@ def generate_report(
         f.write("\n".join(report))
     print(f"Successfully generated coverage report at: {output_file}")
 
+
 def main():
     parser = argparse.ArgumentParser(description="Calculate eval coverage.")
     parser.add_argument(
@@ -383,32 +245,32 @@ def main():
         model_name="gemini-2.5-flash",
     )
 
-    (
-        all_tools,
-        covered_tools,
-        phantom_tools_by_file,
-        eval_files,
-        called_tools,
-    ) = run_coverage_analysis(agent_dir)
+    # 1. Unified Ingestion Pass (Reads files once, chunks everything)
+    print(f"Ingesting and parsing agent workspace at: {agent_dir}...")
+    agent_data = ingest_agent_project(agent_dir)
 
-    declared_transfers, covered_transfers = extract_agent_transfers(
-        agent_dir, eval_files
+    # 2. Run classification pass on instruction segments
+    agent_data.instruction_segments = analyze_instruction_categories(
+        agent_data.instruction_segments, gemini_client
     )
 
-    instruction_segments, instruction_files = analyze_instructions(agent_dir, gemini_client)
-
+    # 3. Run instruction coverage analysis pass
     instruction_segments, covered_instruction_segments = (
         extract_instruction_coverage(
-            instruction_segments, eval_files, called_tools, gemini_client
+            agent_data.instruction_segments,
+            agent_data.eval_chunks,
+            agent_data.called_tools,
+            gemini_client,
         )
     )
 
-    if phantom_tools_by_file:
+    # 4. Warnings for phantoms
+    if agent_data.phantom_tools_by_file:
         print(
             "\n[WARNING] Detected tools that are referenced in evaluations "
             "but do not exist in the tools directory:"
         )
-        for ef, phantoms in sorted(phantom_tools_by_file.items()):
+        for ef, phantoms in sorted(agent_data.phantom_tools_by_file.items()):
             try:
                 rel_path = ef.relative_to(agent_dir)
             except ValueError:
@@ -419,18 +281,19 @@ def main():
             "misspelled.\n"
         )
 
+    # 5. Generate clean report
     generate_report(
-        output_file,
-        all_tools,
-        covered_tools,
-        phantom_tools_by_file,
-        eval_files,
-        declared_transfers,
-        covered_transfers,
-        instruction_segments,
-        covered_instruction_segments,
-        instruction_files,
-        agent_dir,
+        output_file=output_file,
+        total_tools=agent_data.all_tools,
+        covered_tools=agent_data.covered_tools,
+        phantom_tools_by_file=agent_data.phantom_tools_by_file,
+        eval_files=agent_data.eval_files,
+        declared_transfers=agent_data.declared_transfers,
+        covered_transfers=agent_data.covered_transfers,
+        instruction_segments=instruction_segments,
+        covered_instruction_segments=covered_instruction_segments,
+        instruction_files=agent_data.instruction_files,
+        agent_dir=agent_dir,
     )
 
 
