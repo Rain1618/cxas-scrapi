@@ -7,15 +7,13 @@
 #
 #     https://www.apache.org/licenses/LICENSE-2.0
 
-"""Pre-commit guard against third-party brand mentions, powered by
-Gemini.
+"""Pre-commit guard against third-party brand mentions.
 
-Replaces the earlier regex+allowlist approach. The hook collects the
-*added* lines of the staged diff (for ``--code-files``) or the in-
-flight commit message (for ``--commit-msg``), sends them to Gemini
-with a tight prompt listing the brands we ARE allowed to mention, and
-parses a structured-JSON response identifying any third-party brand
-that slipped in.
+The hook collects the *added* lines of the staged diff (for
+``--code-files``) or the in-flight commit message (for
+``--commit-msg``), sends them to Gemini with a tight prompt listing
+the brands we ARE allowed to mention, and parses a structured-JSON
+response identifying any third-party brand that slipped in.
 
 Why diff-only: scanning entire files would re-flag every pre-existing
 license header and English-sentence-starter docstring. The hook is
@@ -53,6 +51,15 @@ import os
 import re
 import subprocess
 import sys
+
+try:
+    from cxas_scrapi.utils.gemini import GeminiGenerate
+except ImportError:
+    # Surfaced as a clear error inside _call_gemini so that argv parsing,
+    # --help, and the BRAND_CHECK_SKIP=1 short-circuit still work even
+    # when the package isn't installed. Top-level import keeps the hook
+    # PEP 8 / ruff PLC0415 compliant.
+    GeminiGenerate = None  # type: ignore[assignment,misc]
 
 # Brands the project IS allowed to mention. Sent verbatim in the prompt
 # so Gemini knows what NOT to flag. Lower-cased before comparison.
@@ -249,13 +256,11 @@ def _call_gemini(prompt: str) -> dict:
             "run `gcloud config set project <id>`."
         )
 
-    try:
-        from cxas_scrapi.utils.gemini import GeminiGenerate  # noqa: PLC0415
-    except ImportError as exc:
+    if GeminiGenerate is None:
         raise RuntimeError(
             "cxas_scrapi not importable — run `pip install -e .[dev]` "
             "from the repo root."
-        ) from exc
+        )
 
     try:
         client = GeminiGenerate(
