@@ -64,6 +64,56 @@ SAMPLE_RATE = 16000
 SAMPLE_WIDTH = 2
 
 
+# Clean WebSocket close codes (RFC 6455)
+_WS_CLEAN_CLOSE_CODES = frozenset(
+    {
+        websocket.STATUS_NORMAL,
+        websocket.STATUS_GOING_AWAY,
+        websocket.STATUS_STATUS_NOT_AVAILABLE,
+    }
+)
+
+# Extract error kind from WS close reason payload
+_BIDI_KIND_RE = re.compile(r"generic::(\w+)")
+
+# Best-effort trace ID extraction from WS close reason
+_BIDI_TRACE_RE = re.compile(
+    r"(?:trace[_-]?id|trace)[\"'\s:=]+([a-zA-Z0-9_\-]+)", re.IGNORECASE
+)
+
+
+class BidiSessionError(Exception):
+    """Raised when the bidi WebSocket terminates abnormally.
+
+    Carries structured information about the close-frame or
+    connection-level error so callers can branch on:
+      - close_status_code: WS close code (e.g., 1007, 1011); None
+        for connection-level errors that closed without a frame
+      - server_error_kind: kind parsed from
+        "[ORIGINAL ERROR] generic::<kind>:" -- e.g., "resource_exhausted"
+      - server_trace_id: best-effort trace id extraction (often None)
+      - close_msg: raw close-reason string for fallback inspection
+    """
+
+    def __init__(
+        self,
+        message: str,
+        close_status_code: Optional[int] = None,
+        close_msg: Optional[str] = None,
+        server_error_kind: Optional[str] = None,
+        server_trace_id: Optional[str] = None,
+    ):
+        super().__init__(message)
+        self.close_status_code = close_status_code
+        self.close_msg = close_msg
+        self.server_error_kind = server_error_kind
+        self.server_trace_id = server_trace_id
+
+
+# Maximum timeout per WebSocket turn run
+_BIDI_RUN_TIMEOUT_S = 120
+
+
 class AgentTurnManager:
     """Manages the agent's turn by simulating audio playback time."""
 
@@ -130,6 +180,9 @@ class BidiSessionHandler:
         self.agent_turn_manager = AgentTurnManager()
         self.ws_app = None
         self.outputs = []
+        self._close_status_code: Optional[int] = None
+        self._close_msg: Optional[str] = None
+        self._connection_error: Optional[BaseException] = None
 
     def _send_silence(self, num_chunks: int):
         silence_chunk = b"\x00" * AUDIO_CHUNK_SIZE
@@ -319,6 +372,8 @@ class BidiSessionHandler:
 
     def _on_error(self, ws, error):
         logging.debug("WebSocket error: %s", error)
+        # Stash connection-level errors
+        self._connection_error = error
 
     def _on_close(self, ws, close_status_code, close_msg):
         logging.debug(
@@ -326,6 +381,9 @@ class BidiSessionHandler:
             close_status_code,
             close_msg,
         )
+        # Stash close status to verify clean closure
+        self._close_status_code = close_status_code
+        self._close_msg = close_msg
 
     def run(self):
         logging.debug("Connecting to WebSocket: %s", self.uri)
@@ -349,7 +407,56 @@ class BidiSessionHandler:
         wst.start()
 
         logging.debug("Waiting for session to complete...")
-        wst.join()
+        wst.join(timeout=_BIDI_RUN_TIMEOUT_S)
+        if wst.is_alive():
+            # Force close connection on run timeout
+            logging.warning(
+                "Bidi session exceeded %ss without completing; forcing close.",
+                _BIDI_RUN_TIMEOUT_S,
+            )
+            if self._connection_error is None:
+                self._connection_error = TimeoutError(
+                    f"bidi run timed out after {_BIDI_RUN_TIMEOUT_S}s "
+                    "(no end-of-turn or close)"
+                )
+            try:
+                self.ws_app.close()
+            except Exception:
+                pass
+            wst.join(timeout=5)
+
+        # Check for abnormal WebSocket closures
+        if (
+            self._close_status_code is not None
+            and self._close_status_code not in _WS_CLEAN_CLOSE_CODES
+        ):
+            raw = self._close_msg or ""
+            kind_match = _BIDI_KIND_RE.search(raw)
+            trace_match = _BIDI_TRACE_RE.search(raw)
+            kind = kind_match.group(1) if kind_match else None
+            trace_id = trace_match.group(1) if trace_match else None
+            summary = (
+                f"CXAS bidi session closed by server "
+                f"(code={self._close_status_code}"
+                + (f", kind={kind}" if kind else "")
+                + (f", trace_id={trace_id}" if trace_id else "")
+                + ")"
+            )
+            raise BidiSessionError(
+                summary,
+                close_status_code=self._close_status_code,
+                close_msg=raw,
+                server_error_kind=kind,
+                server_trace_id=trace_id,
+            )
+
+        # Handle connection errors without close frames
+        if self._connection_error is not None and not self.outputs:
+            raise BidiSessionError(
+                f"CXAS bidi connection error: {self._connection_error}",
+                close_status_code=None,
+                close_msg=str(self._connection_error),
+            )
 
         return types.RunSessionResponse(outputs=self.outputs)
 
@@ -645,6 +752,8 @@ class Sessions(Common):
         - tool_responses: List of tool responses received.
         - agent_transfer: Target agent if a transfer occurred.
         - session_ended: Boolean indicating if session ended.
+        - citations: List of citations used for response generation.
+        - payload: Custom payload dict if present.
         """
         parsed = ParsedSessionResponse(response)
         return {
@@ -662,6 +771,10 @@ class Sessions(Common):
             ],
             "agent_transfer": parsed.agent_transfer,
             "session_ended": parsed.session_ended,
+            "citations": parsed.citations,
+            "payload": (
+                parsed.custom_payloads[0] if parsed.custom_payloads else None
+            ),
         }
 
     def async_bidi_run_session(
