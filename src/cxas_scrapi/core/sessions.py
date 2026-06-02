@@ -40,7 +40,12 @@ try:
 except ImportError:
     HAS_IPYTHON = False
 
-from cxas_scrapi.core.audio_transformer import AudioTransformer
+from cxas_scrapi.core.audio_transformer import (
+    AUDIO_CHANNELS,
+    AUDIO_SAMPLE_RATE_HZ,
+    AUDIO_SAMPLE_WIDTH,
+    AudioTransformer,
+)
 try:
     from pydub import AudioSegment
 except ImportError:
@@ -63,8 +68,8 @@ BIDI_SESSION_URI = (
 AUDIO_CHUNK_SIZE = 3200
 CHUNK_DELAY = 0.1
 SILENCE_PADDING_CHUNKS = 3
-SAMPLE_RATE = 16000
-SAMPLE_WIDTH = 2
+SAMPLE_RATE = AUDIO_SAMPLE_RATE_HZ
+SAMPLE_WIDTH = AUDIO_SAMPLE_WIDTH
 
 
 class AgentTurnManager:
@@ -140,17 +145,18 @@ class BidiSessionHandler:
         self.bg_noise_segment = None
         self.bg_noise_cursor = 0
         if background_noise_file and AudioSegment is None:
-            logging.warning(
-                "background_noise_file was provided, but pydub is not installed or failed to import (e.g., under Python 3.13+). Audio background noise streaming will be skipped."
+            raise ImportError(
+                "background_noise_file was provided, but pydub is not installed or failed to import. "
+                "Please install pydub (and audioop-lts on Python 3.13+) to enable background noise."
             )
         if AudioSegment and background_noise_file:
             try:
                 # Load and format to 16000Hz, 1ch, 16-bit (sample width 2) PCM
                 segment = AudioSegment.from_file(background_noise_file)
                 segment = (
-                    segment.set_frame_rate(16000)
-                    .set_channels(1)
-                    .set_sample_width(2)
+                    segment.set_frame_rate(SAMPLE_RATE)
+                    .set_channels(AUDIO_CHANNELS)
+                    .set_sample_width(SAMPLE_WIDTH)
                 )
 
                 # Pre-scale the noise to match the target SNR relative to a standard -20.0 dBFS speech level
@@ -173,7 +179,7 @@ class BidiSessionHandler:
 
     def _get_next_noise_chunk(self, duration_ms: int) -> bytes:
         """Extracts the next chunk of continuous background noise PCM bytes."""
-        chunk_bytes_len = int(16000 * 2 * (duration_ms / 1000))
+        chunk_bytes_len = int(SAMPLE_RATE * SAMPLE_WIDTH * (duration_ms / 1000))
 
         if self.bg_noise_segment is None:
             return b"\x00" * chunk_bytes_len
@@ -242,7 +248,10 @@ class BidiSessionHandler:
             if self.bg_noise_segment is not None:
                 try:
                     speech_seg = AudioSegment(
-                        chunk, frame_rate=16000, sample_width=2, channels=1
+                        chunk,
+                        frame_rate=SAMPLE_RATE,
+                        sample_width=SAMPLE_WIDTH,
+                        channels=AUDIO_CHANNELS,
                     )
                     noise_seg = self.bg_noise_segment[
                         self.bg_noise_cursor : self.bg_noise_cursor + 100

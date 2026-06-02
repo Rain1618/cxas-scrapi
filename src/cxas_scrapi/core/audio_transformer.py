@@ -28,6 +28,11 @@ from google.cloud import texttospeech
 
 ClientOptions = client_options.ClientOptions
 
+# Standard audio formats for CXAS voice streaming (16kHz, 1ch, 16-bit PCM)
+AUDIO_SAMPLE_RATE_HZ = 16000
+AUDIO_CHANNELS = 1
+AUDIO_SAMPLE_WIDTH = 2
+
 
 class AudioTransformer:
     _client = None
@@ -117,9 +122,9 @@ class AudioTransformer:
                     # Export the mixed audio to raw PCM bytes
                     mixed_io = io.BytesIO()
                     speech_audio = (
-                        speech_audio.set_frame_rate(16000)
-                        .set_channels(1)
-                        .set_sample_width(2)
+                        speech_audio.set_frame_rate(AUDIO_SAMPLE_RATE_HZ)
+                        .set_channels(AUDIO_CHANNELS)
+                        .set_sample_width(AUDIO_SAMPLE_WIDTH)
                     )
                     speech_audio.export(mixed_io, format="wav")
                     mixed_io.seek(0)
