@@ -303,6 +303,9 @@ def test_agent_turn_manager_no_audio():
 @patch("cxas_scrapi.core.sessions.websocket.WebSocketApp")
 @patch("cxas_scrapi.core.sessions.threading.Thread")
 def test_bidi_session_handler_run(mock_thread, mock_ws_app):
+    # Configure mock thread so is_alive() returns False (no timeout)
+    mock_thread.return_value.is_alive.return_value = False
+
     config = {"session": "projects/p/locations/us/apps/a/sessions/s1"}
     inputs = [{"text": "Hello"}]
     handler = BidiSessionHandler(
