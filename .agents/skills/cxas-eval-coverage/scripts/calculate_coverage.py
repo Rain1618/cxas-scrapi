@@ -20,9 +20,14 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Set, Tuple
 
-from cxas_scrapi.utils.gemini import GeminiGenerate
 from ingestion import ingest_agent_project
-from instruction_coverage import analyze_instruction_categories, extract_instruction_coverage
+from instruction_coverage import (
+    analyze_instruction_categories,
+    consolidate_instruction_segments_with_llm,
+    extract_instruction_coverage,
+)
+
+from cxas_scrapi.utils.gemini import GeminiGenerate
 
 
 def generate_report(
@@ -65,7 +70,9 @@ def generate_report(
         cat = instruction_segment["category"]
         category_counts[cat] = category_counts.get(cat, 0) + 1
         if instruction_segment["covered"] == "Yes":
-            category_covered_counts[cat] = category_covered_counts.get(cat, 0) + 1
+            category_covered_counts[cat] = (
+                category_covered_counts.get(cat, 0) + 1
+            )
 
     report = []
     report.append("# Evaluation Coverage Report\n")
@@ -106,9 +113,7 @@ def generate_report(
         total = category_counts[cat]
         covered = category_covered_counts.get(cat, 0)
         pct = (covered / total * 100.0) if total else 0.0
-        report.append(
-            f"| **{cat}** | {total} | {covered} | {pct:.1f}% |"
-        )
+        report.append(f"| **{cat}** | {total} | {covered} | {pct:.1f}% |")
 
     report.append("\n---\n")
 
@@ -120,7 +125,9 @@ def generate_report(
                 report.append("### Uncovered Segments")
                 has_uncovered = True
             status = instruction_segment["covered"]
-            report.append(f"*   `{instruction_segment['directive']}` ({status})")
+            report.append(
+                f"*   `{instruction_segment['directive']}` ({status})"
+            )
 
     if not has_uncovered:
         report.append("All instruction segments are 100% covered by tests.")
@@ -249,7 +256,12 @@ def main():
     print(f"Ingesting and parsing agent workspace at: {agent_dir}...")
     agent_data = ingest_agent_project(agent_dir)
 
-    # 2. Run classification pass on instruction segments
+    # 2. Consolidate and refine instruction segments using LLM
+    agent_data.instruction_segments = consolidate_instruction_segments_with_llm(
+        agent_data.instruction_segments, gemini_client
+    )
+
+    # 3. Run classification pass on consolidated instruction segments
     agent_data.instruction_segments = analyze_instruction_categories(
         agent_data.instruction_segments, gemini_client
     )

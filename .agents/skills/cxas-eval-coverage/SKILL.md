@@ -41,3 +41,4 @@ python .agents/skills/cxas-eval-coverage/scripts/calculate_coverage.py \
 Supported Coverage Metrics:
 *   **Tool Coverage**: Scans the `tools/` directory and maps each tool against explicit calls in Golden Evals or expectation strings in Simulation Evals.
 *   **Intent/Tag Coverage**: Maps the tags defined in evaluations against the intents/actions defined in the agent instruction.
+*   **Instruction Segment Coverage**: Uses an XML tag fallback structure combined with a **Pro LLM-based consolidation pass** to merge redundant instructions and filter out non-testable conversational fillers before performing vector-similarity-driven coverage analysis.

@@ -17,14 +17,19 @@
 import re
 from typing import Any, Dict, List
 
-def parse_instruction_content(content: str, agent_name: str) -> List[Dict[str, Any]]:
+
+def parse_instruction_content(
+    content: str, agent_name: str
+) -> List[Dict[str, Any]]:
     """Parses instruction file content and splits it into structured segments.
 
     Supports both XML-tagged sections (e.g., <Rules>...) and raw files (fallback to 'Rules').
     """
     instruction_segments = []
 
-    def add_instruction_segment(quote_lines: List[str], cat_name: str, a_name: str):
+    def add_instruction_segment(
+        quote_lines: List[str], cat_name: str, a_name: str
+    ):
         q_text = " ".join(quote_lines).strip()
         if len(q_text) > 10:
             q_text = re.sub(r"^\d+[\.\)]\s*", "", q_text)

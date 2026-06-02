@@ -14,7 +14,6 @@
 
 """Instruction-related evaluation coverage analysis functions."""
 
-import json
 import math
 import os
 import re
@@ -24,8 +23,10 @@ from pydantic import BaseModel, Field
 
 from cxas_scrapi.utils.gemini import GeminiGenerate
 
+
 class CategorizationResult(BaseModel):
     """Schema for LLM categorization of instruction segments."""
+
     category: str = Field(
         description="Category of the instruction: 'Functional Intent' or 'Behavioral Constraint'"
     )
@@ -34,10 +35,12 @@ class CategorizationResult(BaseModel):
 
 class SentimentAnalysisResult(BaseModel):
     """Schema for LLM sentiment analysis of user prompts."""
+
     has_behavioral_diversity: bool = Field(
         description="True if the test suite contains phrasing aimed at testing the personal, role or behaviour of the agent. False otherwise."
     )
     reasoning: str = Field(description="Reason for the decision")
+
 
 class InstructionSegmentCoverageResult(BaseModel):
     """Schema for the LLM evaluation of instruction segment coverage."""
@@ -54,13 +57,144 @@ class InstructionSegmentCoverageResult(BaseModel):
         description="""A brief reasoning string explaining the decision."""
     )
 
+
+class ConsolidatedInstruction(BaseModel):
+    """Schema for a single consolidated/filtered instruction segment."""
+
+    directive: str = Field(
+        description="A brief 3-5 word title/summary of the instruction segment."
+    )
+    full_text: str = Field(
+        description="The complete, detailed instruction text. Keep specific parameters, tool names, and validation rules intact."
+    )
+    category: str = Field(
+        description="The category: 'Functional Intent' or 'Behavioral Constraint'."
+    )
+    reasoning: str = Field(
+        description="A brief explanation of why this segment is kept or how it was consolidated."
+    )
+
+
+class ConsolidationResult(BaseModel):
+    """Schema for the LLM instruction segment consolidation result."""
+
+    instructions: List[ConsolidatedInstruction] = Field(
+        description="The list of refined, consolidated instruction segments that actually need to be tested."
+    )
+
+
+def consolidate_instruction_segments_with_llm(
+    instruction_segments: List[Dict[str, Any]],
+    gemini_client: GeminiGenerate,
+) -> List[Dict[str, Any]]:
+    """Uses a pro Gemini model to consolidate and extract testable instruction segments."""
+    if not gemini_client or not instruction_segments:
+        return instruction_segments
+
+    from collections import defaultdict
+
+    segments_by_agent = defaultdict(list)
+    for s in instruction_segments:
+        segments_by_agent[s["agent"]].append(s)
+
+    consolidated_segments = []
+
+    for agent_name, segments in segments_by_agent.items():
+        print(
+            f"Consolidating {len(segments)} raw instruction segment(s) "
+            f"for agent '{agent_name}' using Pro LLM..."
+        )
+
+        # Format raw segments for the prompt
+        raw_segments_text = ""
+        for idx, s in enumerate(segments):
+            raw_segments_text += (
+                f"--- RAW SEGMENT {idx} ---\n"
+                f"Category: {s.get('category', 'Rules')}\n"
+                f"Text: {s['full_text']}\n\n"
+            )
+
+        prompt = f"""
+        You are an expert test coverage engineer and Conversational AI designer.
+        Your task is to review, refine, and consolidate the following list of raw instruction segments extracted from the GECX agent '{agent_name}'.
+
+        Please perform these steps carefully:
+        1. **Merge Redundancies**: Combine instruction segments that are highly similar, redundant, or represent variations of the same core guideline/behavior into a single comprehensive segment.
+        2. **Filter Non-Testables**: Remove instructions that are non-testable, conversational filler, general formatting rules not related to logic, or boilerplate greetings (e.g., "Greet the user nicely", "Always say hello"). Keep instructions that describe specific functional intents, API/tool execution business logic, conditional routing logic, strict validation constraints, and distinctive behavioral or safety guardrails.
+        3. **Categorize**: Ensure each final consolidated segment is classified as either:
+           - 'Functional Intent': Explicit actions, tool executions, API logic, or data retrieval steps.
+           - 'Behavioral Constraint': Tone, safety guardrails, active listening techniques, or conversational persona rules.
+        4. **Format Output**: Ensure every segment has a 3-5 word directive title, the complete consolidated full_text, the category, and a brief reasoning explanation.
+
+        Raw Instruction Segments:
+        {raw_segments_text}
+        """
+
+        try:
+            # Requesting gemini-2.5-pro explicitly as the "pro agent"
+            # for complex consolidation
+            response = gemini_client.generate(
+                prompt=prompt,
+                model_name="gemini-2.5-pro",
+                response_mime_type="application/json",
+                response_schema=ConsolidationResult,
+                temperature=0.0,
+            )
+
+            if response and hasattr(response, "instructions"):
+                instructions_list = response.instructions
+            elif (
+                response
+                and isinstance(response, dict)
+                and "instructions" in response
+            ):
+                instructions_list = response["instructions"]
+            else:
+                instructions_list = []
+
+            for inst in instructions_list:
+                if isinstance(inst, dict):
+                    dir_val = inst.get("directive", "")
+                    text_val = inst.get("full_text", "")
+                    cat_val = inst.get("category", "Functional Intent")
+                else:
+                    dir_val = getattr(inst, "directive", "")
+                    text_val = getattr(inst, "full_text", "")
+                    cat_val = getattr(inst, "category", "Functional Intent")
+
+                if len(text_val) > 10:
+                    q_text = text_val.strip()
+                    consolidated_segments.append(
+                        {
+                            "agent": agent_name,
+                            "category": cat_val,
+                            "directive": dir_val,
+                            "quote": f'"{q_text[:200]}..."'
+                            if len(q_text) > 200
+                            else f'"{q_text}"',
+                            "full_text": q_text,
+                        }
+                    )
+        except Exception as e:
+            print(
+                f"Warning: Pro LLM consolidation failed for agent "
+                f"'{agent_name}': {e}"
+            )
+            # Fallback: use original segments if LLM fails
+            consolidated_segments.extend(segments)
+
+    return consolidated_segments
+
+
 def analyze_instruction_categories(
     instruction_segments: List[Dict[str, Any]],
     gemini_client: GeminiGenerate = None,
 ) -> List[Dict[str, Any]]:
     """Runs LLM classification on instruction segments to categorize them."""
     if gemini_client and instruction_segments:
-        print(f"Categorizing {len(instruction_segments)} instruction segment(s) using LLM...")
+        print(
+            f"Categorizing {len(instruction_segments)} instruction segment(s) using LLM..."
+        )
         for segment in instruction_segments:
             prompt = f"""
             Categorize the following AI Agent instruction into one of two categories:
@@ -69,7 +203,7 @@ def analyze_instruction_categories(
 
             Instruction:
             <INSTRUCTION>
-            {segment['full_text']}
+            {segment["full_text"]}
             </INSTRUCTION>
 
             Analyze the instruction and determine the best category.
@@ -89,19 +223,33 @@ def analyze_instruction_categories(
                     # Normalize category to match the requested names
                     if "functional" in cat.lower():
                         segment["category"] = "Functional Intent"
-                    elif "behavioral" in cat.lower() or "persona" in cat.lower() or "constraint" in cat.lower():
+                    elif (
+                        "behavioral" in cat.lower()
+                        or "persona" in cat.lower()
+                        or "constraint" in cat.lower()
+                    ):
                         segment["category"] = "Behavioral Constraint"
                     else:
-                        segment["category"] = cat # Fallback to LLM response if it returns something else
+                        segment["category"] = (
+                            cat  # Fallback to LLM response if it returns something else
+                        )
             except Exception as e:
-                print(f"Warning: LLM categorization failed for segment '{segment['directive']}': {e}")
+                print(
+                    f"Warning: LLM categorization failed for segment '{segment['directive']}': {e}"
+                )
                 # Keep original category (which might be from XML tag or "Rules") or default
-                if segment["category"] not in ["Functional Intent", "Behavioral Constraint"]:
-                     # Try to infer from current category
-                     if "rule" in segment["category"].lower() or "persona" in segment["category"].lower():
-                         segment["category"] = "Behavioral Constraint"
-                     else:
-                         segment["category"] = "Functional Intent"
+                if segment["category"] not in [
+                    "Functional Intent",
+                    "Behavioral Constraint",
+                ]:
+                    # Try to infer from current category
+                    if (
+                        "rule" in segment["category"].lower()
+                        or "persona" in segment["category"].lower()
+                    ):
+                        segment["category"] = "Behavioral Constraint"
+                    else:
+                        segment["category"] = "Functional Intent"
 
     return instruction_segments
 
@@ -154,23 +302,38 @@ def extract_instruction_coverage(
     ]
     chunk_texts = [chunk["text"] for chunk in eval_chunks]
 
+    def batch_generate_embeddings(
+        texts: List[str], batch_size: int = 250
+    ) -> List[Any]:
+        embeddings = []
+        for start_idx in range(0, len(texts), batch_size):
+            batch = texts[start_idx : start_idx + batch_size]
+            try:
+                batch_embeddings = gemini_client.generate_embeddings(
+                    contents=batch
+                )
+                embeddings.extend(batch_embeddings)
+            except Exception as e:
+                print(f"Warning: Failed to generate embeddings for batch: {e}")
+                # Extend with None to preserve list alignment
+                embeddings.extend([None] * len(batch))
+        return embeddings
+
     instruction_segment_embeddings = []
     chunk_embeddings = []
 
     if instruction_segments_texts:
         print(
-            f"""Generating embeddings for {len(instruction_segments_texts)}
-            instruction segment(s)..."""
+            f"Generating embeddings for {len(instruction_segments_texts)} "
+            "instruction segment(s)..."
         )
-        instruction_segment_embeddings = gemini_client.generate_embeddings(
-            contents=instruction_segments_texts
+        instruction_segment_embeddings = batch_generate_embeddings(
+            instruction_segments_texts
         )
 
     if chunk_texts:
         print(f"Generating embeddings for {len(chunk_texts)} eval chunk(s)...")
-        chunk_embeddings = gemini_client.generate_embeddings(
-            contents=chunk_texts
-        )
+        chunk_embeddings = batch_generate_embeddings(chunk_texts)
 
     covered_instruction_segments = []
 
