@@ -46,6 +46,7 @@ from cxas_scrapi.core.audio_transformer import (
     AUDIO_SAMPLE_WIDTH,
     AudioTransformer,
 )
+
 try:
     from pydub import AudioSegment
 except ImportError:
@@ -146,8 +147,9 @@ class BidiSessionHandler:
         self.bg_noise_cursor = 0
         if background_noise_file and AudioSegment is None:
             raise ImportError(
-                "background_noise_file was provided, but pydub is not installed or failed to import. "
-                "Please install pydub (and audioop-lts on Python 3.13+) to enable background noise."
+                "background_noise_file was provided, but pydub is not "
+                "installed or failed to import. Please install pydub "
+                "(and audioop-lts on Python 3.13+) to enable background noise."
             )
         if AudioSegment and background_noise_file:
             try:
@@ -159,13 +161,15 @@ class BidiSessionHandler:
                     .set_sample_width(SAMPLE_WIDTH)
                 )
 
-                # Pre-scale the noise to match the target SNR relative to a standard -20.0 dBFS speech level
+                # Pre-scale the noise to match the target SNR relative to a
+                # standard -20.0 dBFS speech level
                 if segment.dBFS != float("-inf"):
                     target_noise_dbfs = -20.0 - bg_noise_snr
                     volume_change = target_noise_dbfs - segment.dBFS
                     self.bg_noise_segment = segment + volume_change
                     logging.debug(
-                        "Pre-scaled continuous background noise: target = %.2f dBFS, delta = %.2f dB",
+                        "Pre-scaled continuous background noise: "
+                        "target = %.2f dBFS, delta = %.2f dB",
                         target_noise_dbfs,
                         volume_change,
                     )
@@ -244,7 +248,8 @@ class BidiSessionHandler:
         for i in range(0, len(audio_bytes), AUDIO_CHUNK_SIZE):
             chunk = audio_bytes[i : i + AUDIO_CHUNK_SIZE]
 
-            # Dynamically mix continuous background noise chunk-by-chunk in real-time
+            # Dynamically mix continuous background noise chunk-by-chunk
+            # in real-time
             if self.bg_noise_segment is not None:
                 try:
                     speech_seg = AudioSegment(
@@ -264,7 +269,8 @@ class BidiSessionHandler:
                     chunk = mixed_seg.raw_data[: len(chunk)]
                 except Exception as ex:
                     logging.warning(
-                        f"Failed to overlay continuous noise chunk in real-time: {ex}"
+                        "Failed to overlay continuous noise chunk in "
+                        f"real-time: {ex}"
                     )
 
             query_message = types.BidiSessionClientMessage(

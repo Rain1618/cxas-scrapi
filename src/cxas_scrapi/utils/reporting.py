@@ -966,7 +966,9 @@ def generate_combined_html_report(
         json=json,
         css_content=load_component("base/base.css"),
         js_interaction=load_component("base/interaction.js"),
-        bg_noise_file=os.path.basename(bg_noise_file) if bg_noise_file else None,
+        bg_noise_file=(
+            os.path.basename(bg_noise_file) if bg_noise_file else None
+        ),
         burst_noise_files=burst_noise_files,
     )
 

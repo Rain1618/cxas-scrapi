@@ -671,7 +671,7 @@ def test_sessions_rate_limiting_multi_turn(mock_client_cls):
 
 
 def test_bidi_session_handler_pydub_missing_raises_error():
-    """Test BidiSessionHandler raises ImportError if noise is requested but pydub is missing."""
+    """Test BidiSessionHandler raises ImportError when pydub is missing."""
     config = {"session": "projects/p/locations/us/apps/a/sessions/s1"}
 
     with patch("cxas_scrapi.core.sessions.AudioSegment", None):
@@ -683,4 +683,6 @@ def test_bidi_session_handler_pydub_missing_raises_error():
                 inputs=[],
                 background_noise_file="mock_noise.wav",
             )
-        assert "pydub is not installed or failed to import" in str(exc_info.value)
+        assert "pydub is not installed or failed to import" in str(
+            exc_info.value
+        )
