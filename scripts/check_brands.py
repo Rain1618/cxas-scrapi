@@ -69,8 +69,6 @@ ALLOWED_BRANDS: tuple[str, ...] = (
     "GECX",
     "CXAS",
     "DFCX",
-    "Cymbal",  # Google's fictitious-brand placeholder; includes variants
-    # like "Cymbal Telco", "CymbalRetail", etc.
     # --- Google products / services this repo legitimately references ---
     "Gemini",
     "Vertex AI",
