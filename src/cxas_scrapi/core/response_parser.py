@@ -125,6 +125,7 @@ class ParsedSessionResponse:
         self.tool_responses: List[ParsedToolResponse] = []
         self.agent_transfer: Optional[Any] = None
         self.custom_payloads: List[Dict[str, Any]] = []
+        self.citations: List[Dict[str, Any]] = []
         self.session_ended = False
         self.guardrail_trigger: Optional[ParsedGuardrailTrigger] = None
         self.detailed_trace: List[str] = []
@@ -211,6 +212,27 @@ class ParsedSessionResponse:
                         self.session_ended = True
                 else:
                     self.session_ended = True
+
+            # Top-level Citations
+            cit_msg = getattr(output, "citations", None)
+            if cit_msg and hasattr(cit_msg, "cited_chunks"):
+                for chunk in cit_msg.cited_chunks:
+                    self.citations.append(
+                        {
+                            "uri": getattr(chunk, "uri", ""),
+                            "title": getattr(chunk, "title", ""),
+                            "text": getattr(chunk, "text", ""),
+                        }
+                    )
+
+            # Top-level custom payload Struct
+            payload_msg = getattr(output, "payload", None)
+            if payload_msg:
+                payload_val = expand_pb_struct(payload_msg)
+                self.custom_payloads.append(payload_val)
+                self.detailed_trace.append(
+                    f"Custom Payload (Output): {payload_val}"
+                )
 
             # Top-level tool calls
             tc_msg = getattr(output, "tool_calls", None)
