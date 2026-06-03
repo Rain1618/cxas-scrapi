@@ -262,9 +262,6 @@ def test_get_parser_run_session_use_tool_fakes():
     )
     assert args.command == "run-session"
     assert args.modality == "text"
-    expected_app = (
-        "projects/test-project/locations/global/apps/test-app"
-    )
+    expected_app = "projects/test-project/locations/global/apps/test-app"
     assert args.app_name == expected_app
     assert args.use_tool_fakes is True
-

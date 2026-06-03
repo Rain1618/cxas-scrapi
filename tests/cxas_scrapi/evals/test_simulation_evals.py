@@ -1165,4 +1165,3 @@ def test_simulation_evals_run_simulations_use_tool_fakes_parallel(
         None,
         use_tool_fakes=True,
     )
-
