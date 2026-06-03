@@ -14,17 +14,55 @@
 
 """Utility functions for GECX evaluation coverage script."""
 
+import math
 import re
 from typing import Any, Dict, List
 
-def parse_instruction_content(content: str, agent_name: str) -> List[Dict[str, Any]]:
+
+def find_target_agent(obj: Any, ta_list: List[str]) -> None:
+    """Recursively searches for 'targetAgent' fields in a dictionary."""
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if k == "targetAgent":
+                ta_list.append(v)
+            else:
+                find_target_agent(v, ta_list)
+    elif isinstance(obj, list):
+        for item in obj:
+            find_target_agent(item, ta_list)
+
+
+def dot_product(v1: List[float], v2: List[float]) -> float:
+    """Calculates the dot product of two vectors."""
+    return sum(a * b for a, b in zip(v1, v2, strict=True))
+
+
+def magnitude(v: List[float]) -> float:
+    """Calculates the Euclidean magnitude of a vector."""
+    return math.sqrt(sum(a * a for a in v))
+
+
+def cosine_similarity(v1: List[float], v2: List[float]) -> float:
+    """Calculates the cosine similarity between two vectors."""
+    mag1 = magnitude(v1)
+    mag2 = magnitude(v2)
+    if not mag1 or not mag2:
+        return 0.0
+    return dot_product(v1, v2) / (mag1 * mag2)
+
+
+def parse_instruction_content(
+    content: str, agent_name: str
+) -> List[Dict[str, Any]]:
     """Parses instruction file content and splits it into structured segments.
 
     Supports both XML-tagged sections (e.g., <Rules>...) and raw files (fallback to 'Rules').
     """
     instruction_segments = []
 
-    def add_instruction_segment(quote_lines: List[str], cat_name: str, a_name: str):
+    def add_instruction_segment(
+        quote_lines: List[str], cat_name: str, a_name: str
+    ):
         q_text = " ".join(quote_lines).strip()
         if len(q_text) > 10:
             q_text = re.sub(r"^\d+[\.\)]\s*", "", q_text)

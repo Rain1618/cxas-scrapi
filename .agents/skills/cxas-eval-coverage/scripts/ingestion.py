@@ -21,13 +21,13 @@ from pathlib import Path
 from typing import Any, Dict, List, Set, Tuple
 
 import yaml
-
-from utils import parse_instruction_content
+from utils import find_target_agent, parse_instruction_content
 
 
 @dataclass
 class AgentProjectData:
     """A unified data model representing the fully ingested GECX agent project."""
+
     agent_dir: Path
     all_tools: Set[str] = field(default_factory=set)
     eval_files: List[Path] = field(default_factory=list)
@@ -39,7 +39,13 @@ class AgentProjectData:
 
     # Sub-agent transitions/transfers
     declared_transfers: List[Tuple[str, str]] = field(default_factory=list)
-    covered_transfers: Dict[Tuple[str, str], List[str]] = field(default_factory=dict)
+    covered_transfers: Dict[Tuple[str, str], List[str]] = field(
+        default_factory=dict
+    )
+
+    # Callback coverage metrics
+    all_callbacks: Set[str] = field(default_factory=set)
+    covered_callbacks: Set[str] = field(default_factory=set)
 
     # Pre-computed evaluation chunks for instruction similarity judge
     eval_chunks: List[Dict[str, Any]] = field(default_factory=list)
@@ -47,6 +53,24 @@ class AgentProjectData:
     # Ingested instruction files and raw segments
     instruction_files: List[Path] = field(default_factory=list)
     instruction_segments: List[Dict[str, Any]] = field(default_factory=list)
+
+
+def _append_expectations(
+    data: AgentProjectData,
+    expectations: List[str],
+    prefix: str,
+    eval_name: str,
+    file_name: str,
+) -> None:
+    if expectations:
+        data.eval_chunks.append(
+            {
+                "text": f"{prefix}: {eval_name}\nExpectations:\n"
+                + "\n".join(f"- {exp}" for exp in expectations),
+                "eval_name": eval_name,
+                "file_name": file_name,
+            }
+        )
 
 
 def find_tools_local(tools_dir: Path) -> Set[str]:
@@ -83,11 +107,11 @@ def ingest_agent_project(agent_dir: Path) -> AgentProjectData:
     """Ingests and parses all agent files in a single pass, building AgentProjectData."""
     data = AgentProjectData(agent_dir=agent_dir)
 
-    # 1. Find declared tools
+    # Find declared tools
     tools_dir = agent_dir / "tools"
     data.all_tools = find_tools_local(tools_dir)
 
-    # 2. Find all evaluation files
+    # Find all evaluation files
     eval_dir = agent_dir / "evaluations"
     eval_dataset_dir = agent_dir / "evaluationDatasets"
     for d in (eval_dir, eval_dataset_dir):
@@ -96,7 +120,7 @@ def ingest_agent_project(agent_dir: Path) -> AgentProjectData:
                 if p.is_file() and p.suffix in (".json", ".yaml", ".yml"):
                     data.eval_files.append(p)
 
-    # 3. Discover declared Agent Transfers from Agents config
+    # Discover declared Agent Transfers from Agents config
     agent_files = list((agent_dir / "agents").glob("**/*.json"))
     agents = {}
     root_agents = set()
@@ -121,159 +145,201 @@ def ingest_agent_project(agent_dir: Path) -> AgentProjectData:
 
     default_root_agent = next(iter(root_agents)) if root_agents else None
 
-    # 4. Ingest all evaluations in a single, unified file-reading pass
+    # Ingest all evaluations in a single, unified file-reading pass
     for ef in data.eval_files:
         file_tools = set()
         try:
             if ef.suffix == ".json":
                 with open(ef, "r", encoding="utf-8") as f:
                     eval_content = json.load(f)
-
-                if isinstance(eval_content, dict):
-                    eval_name = eval_content.get("displayName") or eval_content.get("name") or ef.stem
-                    golden = eval_content.get("golden", {})
-                    turns = golden.get("turns", [])
-                    for turn_idx, turn in enumerate(turns):
-                        steps = turn.get("steps", [])
-                        turn_text = []
-                        for step in steps:
-                            if "userInput" in step:
-                                turn_text.append(f"User: {step['userInput'].get('text', '')}")
-
-                            expectation = step.get("expectation")
-                            if isinstance(expectation, dict):
-                                # Track tool calls
-                                tool_call = expectation.get("toolCall")
-                                if isinstance(tool_call, dict) and "tool" in tool_call:
-                                    file_tools.add(tool_call["tool"])
-
-                                # Compile expectation criteria for vector chunks
-                                if "note" in expectation:
-                                    turn_text.append(f"Expectation Note: {expectation['note']}")
-                                if "agentTransfer" in expectation:
-                                    target_ag = expectation["agentTransfer"].get("targetAgent", "")
-                                    turn_text.append(f"Expects Transfer to: {target_ag}")
-                                if "toolCall" in expectation:
-                                    turn_text.append(f"Expects Tool Call: {expectation['toolCall'].get('tool', '')}")
-                                if "updatedVariables" in expectation:
-                                    turn_text.append(f"Expects Updated Variables: {json.dumps(expectation['updatedVariables'])}")
-
-                        if turn_text:
-                            data.eval_chunks.append({
-                                "text": f"Native Eval: {ef.stem} (Turn {turn_idx})\n" + "\n".join(turn_text),
-                                "eval_name": eval_name,
-                                "file_name": ef.name
-                            })
-
-                    # Track agent transfers
-                    target_agents = []
-                    def find_target_agent(obj, ta_list):
-                        if isinstance(obj, dict):
-                            for k, v in obj.items():
-                                if k == "targetAgent":
-                                    ta_list.append(v)
-                                else:
-                                    find_target_agent(v, ta_list)
-                        elif isinstance(obj, list):
-                            for item in obj:
-                                find_target_agent(item, ta_list)
-
-                    find_target_agent(eval_content, target_agents)
-
-                    current_agent = default_root_agent
-                    for target in target_agents:
-                        if current_agent and target:
-                            edge = (current_agent, target)
-                            if edge not in data.covered_transfers:
-                                data.covered_transfers[edge] = []
-                            if eval_name not in data.covered_transfers[edge]:
-                                data.covered_transfers[edge].append(eval_name)
-                            current_agent = target
-
             elif ef.suffix in (".yaml", ".yml"):
                 with open(ef, "r", encoding="utf-8") as f:
                     eval_content = yaml.safe_load(f)
-                if not eval_content:
-                    continue
+            else:
+                continue
 
-                # SCRAPI Golden Evals
-                if "conversations" in eval_content:
-                    for conv in eval_content["conversations"]:
-                        c_name = conv.get("conversation", "Unnamed")
-                        tags = conv.get("tags", [])
+            if not eval_content or not isinstance(eval_content, dict):
+                continue
 
-                        turns_text = []
-                        for turn in conv.get("turns", []):
-                            user = turn.get("user", "")
-                            agent = turn.get("agent", "")
-                            turn_str = f"User: {user}\nAgent: {agent}"
+            eval_name = (
+                eval_content.get("displayName")
+                or eval_content.get("name")
+                or ef.stem
+            )
 
-                            for tool_call in turn.get("tool_calls", []):
-                                if isinstance(tool_call, dict) and "action" in tool_call:
-                                    file_tools.add(tool_call["action"])
+            # GECX native golden evaluations
+            if "golden" in eval_content:
+                golden = eval_content.get("golden", {})
+                turns = golden.get("turns", [])
+                for turn_idx, turn in enumerate(turns):
+                    steps = turn.get("steps", [])
+                    turn_text = []
+                    for step in steps:
+                        if "userInput" in step:
+                            turn_text.append(
+                                f"User: {step['userInput'].get('text', '')}"
+                            )
 
-                            if "tool_calls" in turn:
-                                turn_str += f"\nTool Calls: {json.dumps(turn['tool_calls'])}"
-                            turns_text.append(turn_str)
+                        expectation = step.get("expectation")
+                        if isinstance(expectation, dict):
+                            # Track tool calls
+                            tool_call = expectation.get("toolCall")
+                            if (
+                                isinstance(tool_call, dict)
+                                and "tool" in tool_call
+                            ):
+                                file_tools.add(tool_call["tool"])
 
-                        if turns_text:
-                            data.eval_chunks.append({
-                                "text": f"Conversation: {c_name}\nTags: {', '.join(tags)}\n" + "\n".join(turns_text),
+                            # Compile expectation criteria for vector chunks
+                            if "note" in expectation:
+                                turn_text.append(
+                                    f"Expectation Note: {expectation['note']}"
+                                )
+                            if "agentTransfer" in expectation:
+                                target_ag = expectation["agentTransfer"].get(
+                                    "targetAgent", ""
+                                )
+                                turn_text.append(
+                                    f"Expects Transfer to: {target_ag}"
+                                )
+                            if "toolCall" in expectation:
+                                turn_text.append(
+                                    f"Expects Tool Call: {expectation['toolCall'].get('tool', '')}"
+                                )
+                            if "updatedVariables" in expectation:
+                                turn_text.append(
+                                    f"Expects Updated Variables: {json.dumps(expectation['updatedVariables'])}"
+                                )
+
+                    if turn_text:
+                        data.eval_chunks.append(
+                            {
+                                "text": f"Native Eval: {ef.stem} (Turn {turn_idx})\n"
+                                + "\n".join(turn_text),
+                                "eval_name": eval_name,
+                                "file_name": ef.name,
+                            }
+                        )
+
+                # Track agent transfers
+                target_agents = []
+                find_target_agent(eval_content, target_agents)
+
+                current_agent = default_root_agent
+                for target in target_agents:
+                    if current_agent and target:
+                        edge = (current_agent, target)
+                        if edge not in data.covered_transfers:
+                            data.covered_transfers[edge] = []
+                        if eval_name not in data.covered_transfers[edge]:
+                            data.covered_transfers[edge].append(eval_name)
+                        current_agent = target
+
+            # GECX native Simulation Evals
+            elif "scenario" in eval_content:
+                scenario = eval_content["scenario"]
+                task = scenario.get("task", "")
+                user_facts = scenario.get("userFacts", [])
+                steps_text = [f"Task: {task}"]
+                for fact in user_facts:
+                    steps_text.append(
+                        f"Fact: {fact.get('name', '')} = {fact.get('value', '')}"
+                    )
+
+                data.eval_chunks.append(
+                    {
+                        "text": f"Native Simulation Eval: {eval_name}\n"
+                        + "\n".join(steps_text),
+                        "eval_name": eval_name,
+                        "file_name": ef.name,
+                    }
+                )
+
+            # SCRAPI Golden Evals
+            elif "conversations" in eval_content:
+                for conv in eval_content["conversations"]:
+                    c_name = conv.get("conversation", "Unnamed")
+                    tags = conv.get("tags", [])
+
+                    turns_text = []
+                    for turn in conv.get("turns", []):
+                        user = turn.get("user", "")
+                        agent = turn.get("agent", "")
+                        turn_str = f"User: {user}\nAgent: {agent}"
+
+                        for tool_call in turn.get("tool_calls", []):
+                            if (
+                                isinstance(tool_call, dict)
+                                and "action" in tool_call
+                            ):
+                                file_tools.add(tool_call["action"])
+
+                        if "tool_calls" in turn:
+                            turn_str += f"\nTool Calls: {json.dumps(turn['tool_calls'])}"
+                        turns_text.append(turn_str)
+
+                    if turns_text:
+                        data.eval_chunks.append(
+                            {
+                                "text": f"Conversation: {c_name}\nTags: {', '.join(tags)}\n"
+                                + "\n".join(turns_text),
                                 "eval_name": c_name or ef.stem,
-                                "file_name": ef.name
-                            })
+                                "file_name": ef.name,
+                            }
+                        )
 
-                        expectations = conv.get("expectations", [])
-                        if expectations:
-                            data.eval_chunks.append({
-                                "text": f"Conversation: {c_name}\nExpectations:\n" + "\n".join(f"- {exp}" for exp in expectations),
-                                "eval_name": c_name or ef.stem,
-                                "file_name": ef.name
-                            })
+                    expectations = conv.get("expectations", [])
+                    _append_expectations(
+                        data, expectations, "Conversation", c_name or ef.stem, ef.name
+                    )
 
-                # SCRAPI Simulation Evals
-                elif "evals" in eval_content:
-                    for eval_item in eval_content["evals"]:
-                        e_name = eval_item.get("name", "Unnamed")
-                        tags = eval_item.get("tags", [])
+            # SCRAPI Simulation Evals
+            elif "evals" in eval_content:
+                for eval_item in eval_content["evals"]:
+                    e_name = eval_item.get("name", "Unnamed")
+                    tags = eval_item.get("tags", [])
 
-                        steps_text = []
-                        for step in eval_item.get("steps", []):
-                            goal = step.get("goal", "")
-                            success = step.get("success_criteria", "")
-                            guide = step.get("response_guide", "")
-                            steps_text.append(f"Goal: {goal}\nSuccess Criteria: {success}\nResponse Guide: {guide}")
+                    steps_text = []
+                    for step in eval_item.get("steps", []):
+                        goal = step.get("goal", "")
+                        success = step.get("success_criteria", "")
+                        guide = step.get("response_guide", "")
+                        steps_text.append(
+                            f"Goal: {goal}\nSuccess Criteria: {success}\nResponse Guide: {guide}"
+                        )
 
-                        if steps_text:
-                            data.eval_chunks.append({
-                                "text": f"Simulation Eval: {e_name}\nTags: {', '.join(tags)}\n" + "\n".join(steps_text),
+                    if steps_text:
+                        data.eval_chunks.append(
+                            {
+                                "text": f"Simulation Eval: {e_name}\nTags: {', '.join(tags)}\n"
+                                + "\n".join(steps_text),
                                 "eval_name": e_name or ef.stem,
-                                "file_name": ef.name
-                            })
+                                "file_name": ef.name,
+                            }
+                        )
 
-                        expectations = eval_item.get("expectations", [])
-                        if expectations:
-                            data.eval_chunks.append({
-                                "text": f"Simulation Eval: {e_name}\nExpectations:\n" + "\n".join(f"- {exp}" for exp in expectations),
-                                "eval_name": e_name or ef.stem,
-                                "file_name": ef.name
-                            })
+                    expectations = eval_item.get("expectations", [])
+                    _append_expectations(
+                        data, expectations, "Simulation Eval", e_name or ef.stem, ef.name
+                    )
 
-                        # Extract tools from expectations & success criteria
-                        text_to_scan = []
-                        text_to_scan.extend(expectations)
-                        for step in eval_item.get("steps", []):
-                            if "success_criteria" in step:
-                                text_to_scan.append(step["success_criteria"])
-                            if "goal" in step:
-                                text_to_scan.append(step["goal"])
+                    # Extract tools from expectations & success criteria
+                    text_to_scan = []
+                    text_to_scan.extend(expectations)
+                    for step in eval_item.get("steps", []):
+                        if "success_criteria" in step:
+                            text_to_scan.append(step["success_criteria"])
+                        if "goal" in step:
+                            text_to_scan.append(step["goal"])
 
-                        for text in text_to_scan:
-                            if not isinstance(text, str):
-                                continue
-                            for tool in data.all_tools:
-                                if re.search(rf"\b{re.escape(tool)}\b", text, re.IGNORECASE):
-                                    file_tools.add(tool)
+                    for text in text_to_scan:
+                        if not isinstance(text, str):
+                            continue
+                        for tool in data.all_tools:
+                            if re.search(
+                                rf"\b{re.escape(tool)}\b", text, re.IGNORECASE
+                            ):
+                                file_tools.add(tool)
 
         except Exception as e:
             print(f"Warning: Failed to ingest evaluation file {ef}: {e}")
@@ -286,8 +352,9 @@ def ingest_agent_project(agent_dir: Path) -> AgentProjectData:
         data.covered_tools.update(file_tools & data.all_tools)
         data.called_tools.update(file_tools)
 
-    # 5. Ingest all instruction files recursively
+    # Ingest all instruction files recursively
     agents_dir = agent_dir / "agents"
+
     def parse_instruction_file(filepath: Path, agent_name: str):
         try:
             with open(filepath, "r", encoding="utf-8") as f:
@@ -307,5 +374,25 @@ def ingest_agent_project(agent_dir: Path) -> AgentProjectData:
     if p.is_file():
         data.instruction_files.append(p)
         parse_instruction_file(p, "Global")
+
+    # Discover callback tests
+    if agents_dir.exists() and agents_dir.is_dir():
+        for cb_dir in agents_dir.glob("**/*callbacks*/*"):
+            if cb_dir.is_dir() and (cb_dir / "python_code.py").exists():
+                try:
+                    rel_path = cb_dir.relative_to(agents_dir)
+                    cb_name = str(rel_path)
+                except ValueError:
+                    cb_name = cb_dir.name
+
+                data.all_callbacks.add(cb_name)
+
+                has_test = any(
+                    f.name.startswith("test_") and f.name.endswith(".py")
+                    for f in cb_dir.iterdir()
+                    if f.is_file()
+                )
+                if has_test:
+                    data.covered_callbacks.add(cb_name)
 
     return data

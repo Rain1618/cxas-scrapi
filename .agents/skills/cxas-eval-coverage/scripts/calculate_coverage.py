@@ -20,9 +20,14 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Set, Tuple
 
-from cxas_scrapi.utils.gemini import GeminiGenerate
 from ingestion import ingest_agent_project
-from instruction_coverage import analyze_instruction_categories, extract_instruction_coverage
+from instruction_coverage import (
+    analyze_instruction_categories,
+    consolidate_instruction_segments_with_llm,
+    extract_instruction_coverage,
+)
+
+from cxas_scrapi.utils.gemini import GeminiGenerate
 
 
 def generate_report(
@@ -37,6 +42,8 @@ def generate_report(
     covered_instruction_segments: List[Dict[str, Any]],
     instruction_files: List[Path],
     agent_dir: Path,
+    total_callbacks: Set[str],
+    covered_callbacks: Set[str],
 ) -> None:
     """Generates a comprehensive Markdown coverage report."""
     uncovered_tools = total_tools - covered_tools
@@ -58,6 +65,12 @@ def generate_report(
         else 0.0
     )
 
+    total_cbs = len(total_callbacks)
+    covered_cbs = len(covered_callbacks)
+    callback_coverage_pct = (
+        (covered_cbs / total_cbs * 100.0) if total_cbs else 0.0
+    )
+
     category_counts = {}
     category_covered_counts = {}
 
@@ -65,7 +78,9 @@ def generate_report(
         cat = instruction_segment["category"]
         category_counts[cat] = category_counts.get(cat, 0) + 1
         if instruction_segment["covered"] == "Yes":
-            category_covered_counts[cat] = category_covered_counts.get(cat, 0) + 1
+            category_covered_counts[cat] = (
+                category_covered_counts.get(cat, 0) + 1
+            )
 
     report = []
     report.append("# Evaluation Coverage Report\n")
@@ -96,6 +111,10 @@ def generate_report(
         f"| **Agent Transfers** | {total_transfers} | "
         f"{total_transfers_covered} | {transfer_coverage_pct:.1f}% |"
     )
+    report.append(
+        f"| **Callbacks** | {total_cbs} | "
+        f"{covered_cbs} | {callback_coverage_pct:.1f}% |"
+    )
     report.append("\n")
 
     report.append("## Instruction Segment Category Breakdown\n")
@@ -106,9 +125,7 @@ def generate_report(
         total = category_counts[cat]
         covered = category_covered_counts.get(cat, 0)
         pct = (covered / total * 100.0) if total else 0.0
-        report.append(
-            f"| **{cat}** | {total} | {covered} | {pct:.1f}% |"
-        )
+        report.append(f"| **{cat}** | {total} | {covered} | {pct:.1f}% |")
 
     report.append("\n---\n")
 
@@ -120,7 +137,9 @@ def generate_report(
                 report.append("### Uncovered Segments")
                 has_uncovered = True
             status = instruction_segment["covered"]
-            report.append(f"*   `{instruction_segment['directive']}` ({status})")
+            report.append(
+                f"*   `{instruction_segment['directive']}` ({status})"
+            )
 
     if not has_uncovered:
         report.append("All instruction segments are 100% covered by tests.")
@@ -143,6 +162,26 @@ def generate_report(
     else:
         report.append("*All tools are fully covered by evaluations!*")
     report.append("")
+
+    if total_callbacks:
+        report.append("---\n")
+        report.append("## Callback Coverage Breakdown\n")
+        report.append("### Covered Callbacks\n")
+        if covered_callbacks:
+            for cb in sorted(covered_callbacks):
+                report.append(f"*   `{cb}`")
+        else:
+            report.append("*No callbacks are covered by tests.*")
+        report.append("")
+
+        report.append("### Uncovered Callbacks\n")
+        uncovered_callbacks = total_callbacks - covered_callbacks
+        if uncovered_callbacks:
+            for cb in sorted(uncovered_callbacks):
+                report.append(f"*   `{cb}`")
+        else:
+            report.append("*All callbacks are fully covered by tests!*")
+        report.append("")
 
     report.append("---\n")
     report.append("---\n")
@@ -202,7 +241,7 @@ def generate_report(
     print(f"Successfully generated coverage report at: {output_file}")
 
 
-def main():
+async def main():
     parser = argparse.ArgumentParser(description="Calculate eval coverage.")
     parser.add_argument(
         "--agent-dir",
@@ -249,14 +288,19 @@ def main():
     print(f"Ingesting and parsing agent workspace at: {agent_dir}...")
     agent_data = ingest_agent_project(agent_dir)
 
-    # 2. Run classification pass on instruction segments
-    agent_data.instruction_segments = analyze_instruction_categories(
+    # 2. Consolidate and refine instruction segments using LLM
+    agent_data.instruction_segments = await consolidate_instruction_segments_with_llm(
+        agent_data.instruction_segments, gemini_client
+    )
+
+    # 3. Run classification pass on consolidated instruction segments
+    agent_data.instruction_segments = await analyze_instruction_categories(
         agent_data.instruction_segments, gemini_client
     )
 
     # 3. Run instruction coverage analysis pass
     instruction_segments, covered_instruction_segments = (
-        extract_instruction_coverage(
+        await extract_instruction_coverage(
             agent_data.instruction_segments,
             agent_data.eval_chunks,
             agent_data.called_tools,
@@ -294,8 +338,11 @@ def main():
         covered_instruction_segments=covered_instruction_segments,
         instruction_files=agent_data.instruction_files,
         agent_dir=agent_dir,
+        total_callbacks=agent_data.all_callbacks,
+        covered_callbacks=agent_data.covered_callbacks,
     )
 
 
 if __name__ == "__main__":
-    main()
+    import asyncio
+    asyncio.run(main())
