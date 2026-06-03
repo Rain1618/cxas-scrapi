@@ -204,7 +204,7 @@ def test_user_simulator(mock_llm_conv_class, mock_sessions_class):
         variables={},
         modality="text",
         background_noise_file=None,
-        burst_noise_files=None,,
+        burst_noise_files=None,
         use_tool_fakes=False,
     )
     mock_sessions.run.assert_any_call(
@@ -281,7 +281,7 @@ def test_user_simulator_audio(mock_llm_conv_class, mock_sessions_class):
         variables={},
         modality="audio",
         background_noise_file=None,
-        burst_noise_files=None,,
+        burst_noise_files=None,
         use_tool_fakes=False,
     )
     mock_sessions.run.assert_any_call(
