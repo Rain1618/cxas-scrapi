@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Set, Tuple
 
 import yaml
-from utils import parse_instruction_content
+from utils import find_target_agent, parse_instruction_content
 
 
 @dataclass
@@ -49,6 +49,24 @@ class AgentProjectData:
     # Ingested instruction files and raw segments
     instruction_files: List[Path] = field(default_factory=list)
     instruction_segments: List[Dict[str, Any]] = field(default_factory=list)
+
+
+def _append_expectations(
+    data: AgentProjectData,
+    expectations: List[str],
+    prefix: str,
+    eval_name: str,
+    file_name: str,
+) -> None:
+    if expectations:
+        data.eval_chunks.append(
+            {
+                "text": f"{prefix}: {eval_name}\nExpectations:\n"
+                + "\n".join(f"- {exp}" for exp in expectations),
+                "eval_name": eval_name,
+                "file_name": file_name,
+            }
+        )
 
 
 def find_tools_local(tools_dir: Path) -> Set[str]:
@@ -85,11 +103,11 @@ def ingest_agent_project(agent_dir: Path) -> AgentProjectData:
     """Ingests and parses all agent files in a single pass, building AgentProjectData."""
     data = AgentProjectData(agent_dir=agent_dir)
 
-    # 1. Find declared tools
+    # Find declared tools
     tools_dir = agent_dir / "tools"
     data.all_tools = find_tools_local(tools_dir)
 
-    # 2. Find all evaluation files
+    # Find all evaluation files
     eval_dir = agent_dir / "evaluations"
     eval_dataset_dir = agent_dir / "evaluationDatasets"
     for d in (eval_dir, eval_dataset_dir):
@@ -98,7 +116,7 @@ def ingest_agent_project(agent_dir: Path) -> AgentProjectData:
                 if p.is_file() and p.suffix in (".json", ".yaml", ".yml"):
                     data.eval_files.append(p)
 
-    # 3. Discover declared Agent Transfers from Agents config
+    # Discover declared Agent Transfers from Agents config
     agent_files = list((agent_dir / "agents").glob("**/*.json"))
     agents = {}
     root_agents = set()
@@ -123,7 +141,7 @@ def ingest_agent_project(agent_dir: Path) -> AgentProjectData:
 
     default_root_agent = next(iter(root_agents)) if root_agents else None
 
-    # 4. Ingest all evaluations in a single, unified file-reading pass
+    # Ingest all evaluations in a single, unified file-reading pass
     for ef in data.eval_files:
         file_tools = set()
         try:
@@ -201,18 +219,6 @@ def ingest_agent_project(agent_dir: Path) -> AgentProjectData:
 
                 # Track agent transfers
                 target_agents = []
-
-                def find_target_agent(obj, ta_list):
-                    if isinstance(obj, dict):
-                        for k, v in obj.items():
-                            if k == "targetAgent":
-                                ta_list.append(v)
-                            else:
-                                find_target_agent(v, ta_list)
-                    elif isinstance(obj, list):
-                        for item in obj:
-                            find_target_agent(item, ta_list)
-
                 find_target_agent(eval_content, target_agents)
 
                 current_agent = default_root_agent
@@ -279,15 +285,9 @@ def ingest_agent_project(agent_dir: Path) -> AgentProjectData:
                         )
 
                     expectations = conv.get("expectations", [])
-                    if expectations:
-                        data.eval_chunks.append(
-                            {
-                                "text": f"Conversation: {c_name}\nExpectations:\n"
-                                + "\n".join(f"- {exp}" for exp in expectations),
-                                "eval_name": c_name or ef.stem,
-                                "file_name": ef.name,
-                            }
-                        )
+                    _append_expectations(
+                        data, expectations, "Conversation", c_name or ef.stem, ef.name
+                    )
 
             # SCRAPI Simulation Evals
             elif "evals" in eval_content:
@@ -315,15 +315,9 @@ def ingest_agent_project(agent_dir: Path) -> AgentProjectData:
                         )
 
                     expectations = eval_item.get("expectations", [])
-                    if expectations:
-                        data.eval_chunks.append(
-                            {
-                                "text": f"Simulation Eval: {e_name}\nExpectations:\n"
-                                + "\n".join(f"- {exp}" for exp in expectations),
-                                "eval_name": e_name or ef.stem,
-                                "file_name": ef.name,
-                            }
-                        )
+                    _append_expectations(
+                        data, expectations, "Simulation Eval", e_name or ef.stem, ef.name
+                    )
 
                     # Extract tools from expectations & success criteria
                     text_to_scan = []
@@ -354,7 +348,7 @@ def ingest_agent_project(agent_dir: Path) -> AgentProjectData:
         data.covered_tools.update(file_tools & data.all_tools)
         data.called_tools.update(file_tools)
 
-    # 5. Ingest all instruction files recursively
+    # Ingest all instruction files recursively
     agents_dir = agent_dir / "agents"
 
     def parse_instruction_file(filepath: Path, agent_name: str):

@@ -15,12 +15,13 @@
 """Instruction-related evaluation coverage analysis functions."""
 
 import asyncio
-import math
 import os
 import re
+from collections import defaultdict
 from typing import Any, Dict, List, Set, Tuple
 
 from pydantic import BaseModel, Field
+from utils import cosine_similarity
 
 from cxas_scrapi.utils.gemini import GeminiGenerate
 
@@ -91,8 +92,6 @@ async def consolidate_instruction_segments_with_llm(
     """Uses a pro Gemini model to consolidate and extract testable instruction segments."""
     if not gemini_client or not instruction_segments:
         return instruction_segments
-
-    from collections import defaultdict
 
     segments_by_agent = defaultdict(list)
     for s in instruction_segments:
@@ -279,23 +278,6 @@ async def extract_instruction_coverage(
 ]:
     """Uses Vector Embeddings and LLM-as-a-judge to determine instruction
     segment coverage against pre-computed eval chunks."""
-
-    # Helper functions for cosine similarity
-    def dot_product(v1, v2):
-        """Calculates the dot product of two vectors."""
-        return sum(a * b for a, b in zip(v1, v2, strict=True))
-
-    def magnitude(v):
-        """Calculates the Euclidean magnitude of a vector."""
-        return math.sqrt(sum(a * a for a in v))
-
-    def cosine_similarity(v1, v2):
-        """Calculates the cosine similarity between two vectors."""
-        mag1 = magnitude(v1)
-        mag2 = magnitude(v2)
-        if not mag1 or not mag2:
-            return 0.0
-        return dot_product(v1, v2) / (mag1 * mag2)
 
     if not gemini_client:
         project_id = os.environ.get("GOOGLE_CLOUD_PROJECT") or os.environ.get(
