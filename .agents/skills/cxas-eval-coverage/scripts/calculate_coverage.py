@@ -209,7 +209,7 @@ def generate_report(
     print(f"Successfully generated coverage report at: {output_file}")
 
 
-def main():
+async def main():
     parser = argparse.ArgumentParser(description="Calculate eval coverage.")
     parser.add_argument(
         "--agent-dir",
@@ -257,18 +257,18 @@ def main():
     agent_data = ingest_agent_project(agent_dir)
 
     # 2. Consolidate and refine instruction segments using LLM
-    agent_data.instruction_segments = consolidate_instruction_segments_with_llm(
+    agent_data.instruction_segments = await consolidate_instruction_segments_with_llm(
         agent_data.instruction_segments, gemini_client
     )
 
     # 3. Run classification pass on consolidated instruction segments
-    agent_data.instruction_segments = analyze_instruction_categories(
+    agent_data.instruction_segments = await analyze_instruction_categories(
         agent_data.instruction_segments, gemini_client
     )
 
     # 3. Run instruction coverage analysis pass
     instruction_segments, covered_instruction_segments = (
-        extract_instruction_coverage(
+        await extract_instruction_coverage(
             agent_data.instruction_segments,
             agent_data.eval_chunks,
             agent_data.called_tools,
@@ -310,4 +310,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import asyncio
+    asyncio.run(main())
