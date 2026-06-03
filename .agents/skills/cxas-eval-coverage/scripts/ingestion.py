@@ -43,6 +43,10 @@ class AgentProjectData:
         default_factory=dict
     )
 
+    # Callback coverage metrics
+    all_callbacks: Set[str] = field(default_factory=set)
+    covered_callbacks: Set[str] = field(default_factory=set)
+
     # Pre-computed evaluation chunks for instruction similarity judge
     eval_chunks: List[Dict[str, Any]] = field(default_factory=list)
 
@@ -370,5 +374,25 @@ def ingest_agent_project(agent_dir: Path) -> AgentProjectData:
     if p.is_file():
         data.instruction_files.append(p)
         parse_instruction_file(p, "Global")
+
+    # Discover callback tests
+    if agents_dir.exists() and agents_dir.is_dir():
+        for cb_dir in agents_dir.glob("**/*callbacks*/*"):
+            if cb_dir.is_dir() and (cb_dir / "python_code.py").exists():
+                try:
+                    rel_path = cb_dir.relative_to(agents_dir)
+                    cb_name = str(rel_path)
+                except ValueError:
+                    cb_name = cb_dir.name
+
+                data.all_callbacks.add(cb_name)
+
+                has_test = any(
+                    f.name.startswith("test_") and f.name.endswith(".py")
+                    for f in cb_dir.iterdir()
+                    if f.is_file()
+                )
+                if has_test:
+                    data.covered_callbacks.add(cb_name)
 
     return data

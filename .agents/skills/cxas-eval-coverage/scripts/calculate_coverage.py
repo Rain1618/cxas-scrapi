@@ -42,6 +42,8 @@ def generate_report(
     covered_instruction_segments: List[Dict[str, Any]],
     instruction_files: List[Path],
     agent_dir: Path,
+    total_callbacks: Set[str],
+    covered_callbacks: Set[str],
 ) -> None:
     """Generates a comprehensive Markdown coverage report."""
     uncovered_tools = total_tools - covered_tools
@@ -61,6 +63,12 @@ def generate_report(
         (total_transfers_covered / total_transfers * 100.0)
         if total_transfers
         else 0.0
+    )
+
+    total_cbs = len(total_callbacks)
+    covered_cbs = len(covered_callbacks)
+    callback_coverage_pct = (
+        (covered_cbs / total_cbs * 100.0) if total_cbs else 0.0
     )
 
     category_counts = {}
@@ -102,6 +110,10 @@ def generate_report(
     report.append(
         f"| **Agent Transfers** | {total_transfers} | "
         f"{total_transfers_covered} | {transfer_coverage_pct:.1f}% |"
+    )
+    report.append(
+        f"| **Callbacks** | {total_cbs} | "
+        f"{covered_cbs} | {callback_coverage_pct:.1f}% |"
     )
     report.append("\n")
 
@@ -150,6 +162,26 @@ def generate_report(
     else:
         report.append("*All tools are fully covered by evaluations!*")
     report.append("")
+
+    if total_callbacks:
+        report.append("---\n")
+        report.append("## Callback Coverage Breakdown\n")
+        report.append("### Covered Callbacks\n")
+        if covered_callbacks:
+            for cb in sorted(covered_callbacks):
+                report.append(f"*   `{cb}`")
+        else:
+            report.append("*No callbacks are covered by tests.*")
+        report.append("")
+
+        report.append("### Uncovered Callbacks\n")
+        uncovered_callbacks = total_callbacks - covered_callbacks
+        if uncovered_callbacks:
+            for cb in sorted(uncovered_callbacks):
+                report.append(f"*   `{cb}`")
+        else:
+            report.append("*All callbacks are fully covered by tests!*")
+        report.append("")
 
     report.append("---\n")
     report.append("---\n")
@@ -306,6 +338,8 @@ async def main():
         covered_instruction_segments=covered_instruction_segments,
         instruction_files=agent_data.instruction_files,
         agent_dir=agent_dir,
+        total_callbacks=agent_data.all_callbacks,
+        covered_callbacks=agent_data.covered_callbacks,
     )
 
 
