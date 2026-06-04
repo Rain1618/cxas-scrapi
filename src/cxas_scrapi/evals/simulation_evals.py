@@ -418,6 +418,7 @@ class SimulationEvals(Apps):
         console_logging: bool,
         background_noise_file: Optional[str] = None,
         burst_noise_files: Optional[List[str]] = None,
+        use_tool_fakes: bool = False,
     ) -> Any:
         """Sends a request to the CES Agent with exponential backoff for
         transient errors.
@@ -433,6 +434,7 @@ class SimulationEvals(Apps):
                         modality=modality,
                         background_noise_file=background_noise_file,
                         burst_noise_files=burst_noise_files,
+                        use_tool_fakes=use_tool_fakes,
                     )
                 elif user_utterance.startswith("dtmf:"):
                     response = self.sessions_client.run(
@@ -442,6 +444,7 @@ class SimulationEvals(Apps):
                         modality=modality,
                         background_noise_file=background_noise_file,
                         burst_noise_files=burst_noise_files,
+                        use_tool_fakes=use_tool_fakes,
                     )
                 else:
                     response = self.sessions_client.run(
@@ -451,6 +454,7 @@ class SimulationEvals(Apps):
                         modality=modality,
                         background_noise_file=background_noise_file,
                         burst_noise_files=burst_noise_files,
+                        use_tool_fakes=use_tool_fakes,
                     )
                 break
             except Exception as e:
@@ -486,6 +490,7 @@ class SimulationEvals(Apps):
         modality: str = "text",
         background_noise_file: Optional[str] = None,
         burst_noise_files: Optional[List[str]] = None,
+        use_tool_fakes: bool = False,
     ) -> LLMUserConversation:
         """Runs the simulated conversation loop.
 
@@ -526,6 +531,7 @@ class SimulationEvals(Apps):
                 console_logging,
                 background_noise_file,
                 burst_noise_files,
+                use_tool_fakes=use_tool_fakes,
             )
             if not response:
                 break
@@ -588,6 +594,7 @@ class SimulationEvals(Apps):
         parallel: int,
         background_noise_file: Optional[str] = None,
         burst_noise_files: Optional[List[str]] = None,
+        use_tool_fakes: bool = False,
     ) -> Dict[str, Any]:
         """Runs a single simulation job and returns the results."""
         name = tc["name"]
@@ -604,6 +611,7 @@ class SimulationEvals(Apps):
                 modality=modality,
                 background_noise_file=background_noise_file,
                 burst_noise_files=burst_noise_files,
+                use_tool_fakes=use_tool_fakes,
             )
             duration_s = round(time.time() - _start, 1)
 
@@ -682,6 +690,7 @@ class SimulationEvals(Apps):
         verbose: bool,
         background_noise_file: Optional[str] = None,
         burst_noise_files: Optional[List[str]] = None,
+        use_tool_fakes: bool = False,
     ) -> List[Dict[str, Any]]:
         """Aggregates results from multiple simulation jobs."""
         results = []
@@ -701,6 +710,7 @@ class SimulationEvals(Apps):
                             parallel,
                             background_noise_file,
                             burst_noise_files,
+                            use_tool_fakes=use_tool_fakes,
                         )
                     )
                     progress.update(task_id, advance=1)
@@ -719,6 +729,7 @@ class SimulationEvals(Apps):
                             parallel,
                             background_noise_file,
                             burst_noise_files,
+                            use_tool_fakes=use_tool_fakes,
                         ): (tc["name"], run_idx)
                         for tc, run_idx in jobs
                     }
@@ -738,6 +749,7 @@ class SimulationEvals(Apps):
         verbose: bool = False,
         background_noise_file: Optional[str] = None,
         burst_noise_files: Optional[List[str]] = None,
+        use_tool_fakes: bool = False,
     ) -> List[Dict[str, Any]]:
         """Runs multiple simulations, optionally in parallel.
 
@@ -748,6 +760,7 @@ class SimulationEvals(Apps):
             model: Gemini model to use.
             modality: 'text' or 'audio'.
             verbose: Whether to log to console (only active if parallel=1).
+            use_tool_fakes: Use fake tools for the session if available.
         """
         jobs = self._prepare_simulation_jobs(test_cases, runs)
         return self._aggregate_simulation_results(
@@ -759,6 +772,7 @@ class SimulationEvals(Apps):
             verbose,
             background_noise_file,
             burst_noise_files,
+            use_tool_fakes=use_tool_fakes,
         )
 
     def _add_agent_text(self, turn: Turn, text: str) -> None:
