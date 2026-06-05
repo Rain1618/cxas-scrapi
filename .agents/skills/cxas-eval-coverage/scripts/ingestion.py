@@ -39,6 +39,7 @@ class AgentProjectData:
 
     # Sub-agent transitions/transfers
     declared_transfers: List[Tuple[str, str]] = field(default_factory=list)
+    parent_child_transfers: Set[Tuple[str, str]] = field(default_factory=set)
     covered_transfers: Dict[Tuple[str, str], List[str]] = field(
         default_factory=dict
     )
@@ -148,6 +149,7 @@ def ingest_agent_project(agent_dir: Path) -> AgentProjectData:
         for child in children:
             root_agents.discard(child)
             data.declared_transfers.append((display_name, child))
+            data.parent_child_transfers.add((display_name, child))
             for c2 in children:
                 if child != c2:
                     data.declared_transfers.append((child, c2))

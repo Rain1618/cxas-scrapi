@@ -23,7 +23,6 @@ from typing import Any, Dict, List, Set, Tuple
 from ingestion import ingest_agent_project
 from instruction_coverage import (
     analyze_instruction_categories,
-    consolidate_instruction_segments_with_llm,
     extract_instruction_coverage,
     determine_desired_transfers_with_llm,
 )
@@ -48,7 +47,7 @@ def generate_report(
     desired_transfers: Set[Tuple[str, str]],
     errors: List[str] = None,
 ) -> None:
-    """Generates a comprehensive Markdown coverage report."""
+    """Generates a comprehensive coverage report."""
     uncovered_tools = total_tools - covered_tools
     tool_coverage_pct = (
         (len(covered_tools) / len(total_tools) * 100.0) if total_tools else 0.0
@@ -250,8 +249,75 @@ def generate_report(
         report.append("*No evaluation files scanned.*")
 
     output_file.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_file, "w", encoding="utf-8") as f:
-        f.write("\n".join(report))
+
+    if output_file.suffix.lower() == ".json":
+        import json
+
+        # Serialize path objects to strings for JSON
+        def _path_to_str(p):
+            try:
+                return str(p.relative_to(agent_dir))
+            except ValueError:
+                return str(p)
+
+        phantom_tools_str_keys = {
+            _path_to_str(k): list(v) for k, v in phantom_tools_by_file.items()
+        }
+
+        transfers_list = []
+        for from_a, to_a in declared_transfers:
+            desired = (from_a, to_a) in desired_transfers
+            tested = (from_a, to_a) in covered_transfers
+            evals = covered_transfers.get((from_a, to_a), [])
+            transfers_list.append({
+                "from_agent": from_a,
+                "to_agent": to_a,
+                "is_desired": desired,
+                "is_tested": tested,
+                "covering_evals": evals
+            })
+
+        json_data = {
+            "metrics": {
+                "tool_coverage_percent": tool_coverage_pct,
+                "instruction_segment_coverage_percent": overall_segment_pct,
+                "transfer_coverage_percent": transfer_coverage_pct,
+                "callback_coverage_percent": callback_coverage_pct,
+                "total_tools": len(total_tools),
+                "covered_tools": len(covered_tools),
+                "total_segments": total_segments,
+                "covered_segments": total_covered,
+                "total_transfers": total_transfers,
+                "covered_transfers": total_transfers_covered,
+                "total_callbacks": total_cbs,
+                "covered_callbacks": covered_cbs,
+                "category_counts": category_counts,
+                "category_covered_counts": category_covered_counts,
+            },
+            "errors": errors if errors else [],
+            "phantom_tools_by_file": phantom_tools_str_keys,
+            "tools": {
+                "covered": sorted(list(covered_tools)),
+                "uncovered": sorted(list(uncovered_tools))
+            },
+            "callbacks": {
+                "covered": sorted(list(covered_callbacks)),
+                "uncovered": sorted(list(total_callbacks - covered_callbacks))
+            },
+            "agent_transfers": transfers_list,
+            "scanned_files": {
+                "instructions": [_path_to_str(f) for f in instruction_files],
+                "evaluations": [_path_to_str(f) for f in eval_files]
+            },
+            "instruction_segments": instruction_segments,
+            "covered_instruction_segments": covered_instruction_segments
+        }
+        with open(output_file, "w", encoding="utf-8") as f:
+            json.dump(json_data, f, indent=2)
+    else:
+        with open(output_file, "w", encoding="utf-8") as f:
+            f.write("\n".join(report))
+
     print(f"Successfully generated coverage report at: {output_file}")
 
 
@@ -276,6 +342,11 @@ async def main():
         default="global",
         help="Google Cloud location for Gemini services (default: global).",
     )
+    parser.add_argument(
+        "--model",
+        default="gemini-2.5-flash",
+        help="Gemini model name to use for analysis (default: gemini-2.5-flash).",
+    )
     args = parser.parse_args()
 
     agent_dir = Path(args.agent_dir)
@@ -295,7 +366,7 @@ async def main():
     gemini_client = GeminiGenerate(
         project_id=project_id,
         location=location,
-        model_name="gemini-2.5-flash",
+        model_name=args.model,
     )
 
     execution_errors = []
@@ -312,20 +383,21 @@ async def main():
         errors=execution_errors,
     )
 
-    # 2. Consolidate and refine instruction segments using LLM
-    agent_data.instruction_segments = await consolidate_instruction_segments_with_llm(
-        agent_data.instruction_segments, gemini_client, errors=execution_errors
-    )
+    # Automatically mark every parent to child transfer as desired
+    agent_data.desired_transfers.update(agent_data.parent_child_transfers)
 
-    # 3. Run classification pass on consolidated instruction segments
+    # 2. Run classification pass on instruction segments
     agent_data.instruction_segments = await analyze_instruction_categories(
         agent_data.instruction_segments, gemini_client, errors=execution_errors
     )
 
+    # Filter out untestable segments
+    testable_segments = [s for s in agent_data.instruction_segments if s.get("is_testable", True)]
+
     # 3. Run instruction coverage analysis pass
     instruction_segments, covered_instruction_segments = (
         await extract_instruction_coverage(
-            agent_data.instruction_segments,
+            testable_segments,
             agent_data.eval_chunks,
             agent_data.called_tools,
             gemini_client,
