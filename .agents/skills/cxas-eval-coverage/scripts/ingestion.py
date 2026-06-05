@@ -42,6 +42,8 @@ class AgentProjectData:
     covered_transfers: Dict[Tuple[str, str], List[str]] = field(
         default_factory=dict
     )
+    desired_transfers: Set[Tuple[str, str]] = field(default_factory=set)
+    agent_directories: Dict[str, Path] = field(default_factory=dict)
 
     # Callback coverage metrics
     all_callbacks: Set[str] = field(default_factory=set)
@@ -121,16 +123,23 @@ def ingest_agent_project(agent_dir: Path) -> AgentProjectData:
                     data.eval_files.append(p)
 
     # Discover declared Agent Transfers from Agents config
-    agent_files = list((agent_dir / "agents").glob("**/*.json"))
+    agent_files = []
+    for ext in ("*.json", "*.yaml", "*.yml"):
+        agent_files.extend((agent_dir / "agents").glob(f"**/{ext}"))
+
     agents = {}
     root_agents = set()
     for af in agent_files:
         try:
             with open(af, "r", encoding="utf-8") as f:
-                agent_data = json.load(f)
+                if af.suffix in (".yaml", ".yml"):
+                    agent_data = yaml.safe_load(f)
+                else:
+                    agent_data = json.load(f)
             display_name = agent_data.get("displayName")
             agents[display_name] = agent_data
             root_agents.add(display_name)
+            data.agent_directories[display_name] = af.parent
         except Exception:
             pass
 

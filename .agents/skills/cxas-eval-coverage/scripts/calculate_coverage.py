@@ -25,6 +25,7 @@ from instruction_coverage import (
     analyze_instruction_categories,
     consolidate_instruction_segments_with_llm,
     extract_instruction_coverage,
+    determine_desired_transfers_with_llm,
 )
 
 from cxas_scrapi.utils.gemini import GeminiGenerate
@@ -44,6 +45,8 @@ def generate_report(
     agent_dir: Path,
     total_callbacks: Set[str],
     covered_callbacks: Set[str],
+    desired_transfers: Set[Tuple[str, str]],
+    errors: List[str] = None,
 ) -> None:
     """Generates a comprehensive Markdown coverage report."""
     uncovered_tools = total_tools - covered_tools
@@ -84,6 +87,16 @@ def generate_report(
 
     report = []
     report.append("# Evaluation Coverage Report\n")
+
+    if errors:
+        report.append("> [!CAUTION]")
+        report.append(
+            "> **API Errors Occurred:** The coverage calculations may be "
+            "inaccurate or incomplete due to the following errors during execution:"
+        )
+        for err in set(errors):
+            report.append(f"> *   {err}")
+        report.append("\n")
 
     if phantom_tools_by_file:
         report.append("> [!WARNING]")
@@ -186,16 +199,17 @@ def generate_report(
     report.append("---\n")
     report.append("---\n")
     report.append("## Agent Transfer Coverage\n")
-    report.append("| From Agent | To Agent | Tested? | Eval Names |")
-    report.append("| :--- | :--- | :---: | :--- |")
+    report.append("| From Agent | To Agent | Desired? | Tested? | Eval Names |")
+    report.append("| :--- | :--- | :---: | :---: | :--- |")
     for from_a, to_a in declared_transfers:
+        desired = "Yes" if (from_a, to_a) in desired_transfers else "No"
         tested = "Yes" if (from_a, to_a) in covered_transfers else "No"
         evals_str = (
             ", ".join(covered_transfers[(from_a, to_a)])
             if (from_a, to_a) in covered_transfers
             else "None"
         )
-        report.append(f"| `{from_a}` | `{to_a}` | {tested} | {evals_str} |")
+        report.append(f"| `{from_a}` | `{to_a}` | {desired} | {tested} | {evals_str} |")
     report.append("\n---\n")
 
     report.append("## Instruction Files Scanned\n")
@@ -284,18 +298,28 @@ async def main():
         model_name="gemini-2.5-flash",
     )
 
+    execution_errors = []
+
     # 1. Unified Ingestion Pass (Reads files once, chunks everything)
     print(f"Ingesting and parsing agent workspace at: {agent_dir}...")
     agent_data = ingest_agent_project(agent_dir)
 
+    print("Determining desired agent transfers with LLM...")
+    agent_data.desired_transfers = await determine_desired_transfers_with_llm(
+        agent_data.agent_directories,
+        agent_data.declared_transfers,
+        gemini_client,
+        errors=execution_errors,
+    )
+
     # 2. Consolidate and refine instruction segments using LLM
     agent_data.instruction_segments = await consolidate_instruction_segments_with_llm(
-        agent_data.instruction_segments, gemini_client
+        agent_data.instruction_segments, gemini_client, errors=execution_errors
     )
 
     # 3. Run classification pass on consolidated instruction segments
     agent_data.instruction_segments = await analyze_instruction_categories(
-        agent_data.instruction_segments, gemini_client
+        agent_data.instruction_segments, gemini_client, errors=execution_errors
     )
 
     # 3. Run instruction coverage analysis pass
@@ -305,6 +329,7 @@ async def main():
             agent_data.eval_chunks,
             agent_data.called_tools,
             gemini_client,
+            errors=execution_errors,
         )
     )
 
@@ -340,6 +365,8 @@ async def main():
         agent_dir=agent_dir,
         total_callbacks=agent_data.all_callbacks,
         covered_callbacks=agent_data.covered_callbacks,
+        desired_transfers=agent_data.desired_transfers,
+        errors=execution_errors,
     )
 
 

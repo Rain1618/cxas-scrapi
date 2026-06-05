@@ -15,9 +15,11 @@
 """Instruction-related evaluation coverage analysis functions."""
 
 import asyncio
+import json
 import os
 import re
 from collections import defaultdict
+from pathlib import Path
 from typing import Any, Dict, List, Set, Tuple
 
 from pydantic import BaseModel, Field
@@ -88,6 +90,7 @@ class ConsolidationResult(BaseModel):
 async def consolidate_instruction_segments_with_llm(
     instruction_segments: List[Dict[str, Any]],
     gemini_client: GeminiGenerate,
+    errors: List[str] = None,
 ) -> List[Dict[str, Any]]:
     """Uses a pro Gemini model to consolidate and extract testable instruction segments."""
     if not gemini_client or not instruction_segments:
@@ -98,9 +101,11 @@ async def consolidate_instruction_segments_with_llm(
         segments_by_agent[s["agent"]].append(s)
 
     consolidated_segments = []
+    sem = asyncio.Semaphore(5)
 
     async def process_agent(agent_name: str, segments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        print(
+        async with sem:
+            print(
             f"Consolidating {len(segments)} raw instruction segment(s) "
             f"for agent '{agent_name}' using Pro LLM..."
         )
@@ -178,10 +183,10 @@ async def consolidate_instruction_segments_with_llm(
                     )
             return agent_consolidated
         except Exception as e:
-            print(
-                f"Warning: Pro LLM consolidation failed for agent "
-                f"'{agent_name}': {e}"
-            )
+            err_msg = f"Pro LLM consolidation failed for agent '{agent_name}': {e}"
+            print(f"Warning: {err_msg}")
+            if errors is not None:
+                errors.append(err_msg)
             # Fallback: use original segments if LLM fails
             return segments
 
@@ -196,6 +201,7 @@ async def consolidate_instruction_segments_with_llm(
 async def analyze_instruction_categories(
     instruction_segments: List[Dict[str, Any]],
     gemini_client: GeminiGenerate = None,
+    errors: List[str] = None,
 ) -> List[Dict[str, Any]]:
     """Runs LLM classification on instruction segments to categorize them."""
     if not gemini_client or not instruction_segments:
@@ -205,8 +211,11 @@ async def analyze_instruction_categories(
         f"Categorizing {len(instruction_segments)} instruction segment(s) using LLM..."
     )
 
+    sem = asyncio.Semaphore(5)
+
     async def process_segment(segment: Dict[str, Any]):
-        prompt = f"""
+        async with sem:
+            prompt = f"""
         Categorize the following AI Agent instruction into one of two categories:
         - 'Functional Intent': Explicit actions, API executions, or data retrievals (e.g., "Calculate the user's outstanding balance").
         - 'Behavioral Constraint': Quality, tone, persona, or safety guardrails (e.g., "Be nice and welcoming").
@@ -244,9 +253,10 @@ async def analyze_instruction_categories(
                         cat  # Fallback to LLM response if it returns something else
                     )
         except Exception as e:
-            print(
-                f"Warning: LLM categorization failed for segment '{segment['directive']}': {e}"
-            )
+            err_msg = f"LLM categorization failed for segment '{segment['directive']}': {e}"
+            print(f"Warning: {err_msg}")
+            if errors is not None:
+                errors.append(err_msg)
             # Keep original category (which might be from XML tag or "Rules") or default
             if segment.get("category") not in [
                 "Functional Intent",
@@ -272,6 +282,7 @@ async def extract_instruction_coverage(
     eval_chunks: List[Dict[str, Any]],
     called_tools: Set[str],
     gemini_client: GeminiGenerate = None,
+    errors: List[str] = None,
 ) -> Tuple[
     List[Dict[str, Any]],
     List[Dict[str, Any]],
@@ -298,8 +309,11 @@ async def extract_instruction_coverage(
     ]
     chunk_texts = [chunk["text"] for chunk in eval_chunks]
 
+    # Reduce batch size and limit concurrency to prevent backend overload
+    emb_sem = asyncio.Semaphore(3)
+
     async def batch_generate_embeddings_async(
-        texts: List[str], batch_size: int = 250
+        texts: List[str], batch_size: int = 100
     ) -> List[Any]:
         if not texts:
             return []
@@ -307,13 +321,19 @@ async def extract_instruction_coverage(
         batches = [texts[i : i + batch_size] for i in range(0, len(texts), batch_size)]
 
         async def get_batch_embeddings(batch):
-            try:
-                return await asyncio.to_thread(
-                    gemini_client.generate_embeddings, contents=batch
-                )
-            except Exception as e:
-                print(f"Warning: Failed to generate embeddings for batch: {e}")
-                return [None] * len(batch)
+            async with emb_sem:
+                try:
+                    # Adding a small sleep to space out requests
+                    await asyncio.sleep(1)
+                    return await asyncio.to_thread(
+                        gemini_client.generate_embeddings, contents=batch
+                    )
+                except Exception as e:
+                    err_msg = f"Failed to generate embeddings for batch: {e}"
+                    print(f"Warning: {err_msg}")
+                    if errors is not None:
+                        errors.append(err_msg)
+                    return [None] * len(batch)
 
         tasks = [get_batch_embeddings(b) for b in batches]
         results = await asyncio.gather(*tasks)
@@ -339,12 +359,15 @@ async def extract_instruction_coverage(
         print(f"Generating embeddings for {len(chunk_texts)} eval chunk(s)...")
         chunk_embeddings = await batch_generate_embeddings_async(chunk_texts)
 
+    judge_sem = asyncio.Semaphore(5)
+
     async def run_llm_judge(
         instruction_text: str,
         candidate_chunks: List[Dict[str, Any]],
         idx: int,
     ) -> Tuple[int, bool, int]:
-        chunks_formatted_text = ""
+        async with judge_sem:
+            chunks_formatted_text = ""
         for c_idx, c in enumerate(candidate_chunks):
             chunks_formatted_text += (
                 f"\n--- CANDIDATE CHUNK {c_idx} ---\n{c['text']}\n"
@@ -388,7 +411,10 @@ async def extract_instruction_coverage(
 
                 return idx, is_cov, c_idx
         except Exception as e:
-            print(f"LLM call failed for instruction segment {idx}: {e}")
+            err_msg = f"LLM call failed for instruction segment {idx}: {e}"
+            print(err_msg)
+            if errors is not None:
+                errors.append(err_msg)
 
         return idx, False, -1
 
@@ -479,3 +505,112 @@ async def extract_instruction_coverage(
         )
 
     return instruction_segments, covered_instruction_segments
+
+
+class DesiredTransfersResult(BaseModel):
+    """Schema for the LLM evaluation of desired agent transfers."""
+
+    desired_target_agents: List[str] = Field(
+        description="The exact names of the target agents that this agent could potentially transfer to."
+    )
+    reasoning: str = Field(
+        description="A brief explanation of how these targets were identified."
+    )
+
+
+async def determine_desired_transfers_with_llm(
+    agent_directories: Dict[str, Path],
+    declared_transfers: List[Tuple[str, str]],
+    gemini_client: GeminiGenerate,
+    errors: List[str] = None,
+) -> Set[Tuple[str, str]]:
+    """Uses LLM to determine which of the declared transfers are actually desired by the agent."""
+    if not gemini_client or not declared_transfers:
+        return set()
+
+    desired_transfers = set()
+
+    # Group by from_agent
+    outbound_transfers = defaultdict(list)
+    for from_a, to_a in declared_transfers:
+        outbound_transfers[from_a].append(to_a)
+
+    sem = asyncio.Semaphore(5)
+
+    async def process_agent(agent_name: str, possible_targets: List[str]):
+        async with sem:
+            if agent_name not in agent_directories:
+                return
+
+        agent_dir = agent_directories[agent_name]
+
+        # Read all relevant files for this agent
+        files_to_check = []
+        files_to_check.extend(agent_dir.glob("instruction.*"))
+        files_to_check.extend(agent_dir.glob("*.json"))
+        files_to_check.extend(agent_dir.glob("*.yaml"))
+        files_to_check.extend(agent_dir.glob("*.yml"))
+        files_to_check.extend(agent_dir.glob("**/*callbacks*/*/python_code.py"))
+
+        content_parts = []
+        for f in files_to_check:
+            if not f.is_file():
+                continue
+            try:
+                text = f.read_text(encoding="utf-8")
+                # Try to abbreviate if too long (e.g. limit to 10k chars per file to avoid context bloat)
+                if len(text) > 10000:
+                    text = text[:10000] + "... (truncated)"
+                content_parts.append(f"--- FILE: {f.name} ---\n{text}\n")
+            except Exception:
+                pass
+
+        agent_files_content = "\n".join(content_parts)
+        if not agent_files_content.strip():
+            return
+
+        print(f"Determining desired transfers for '{agent_name}' with LLM...")
+
+        prompt = f"""
+        You are an expert analyzing a GECX conversational agent's configuration and logic.
+
+        Agent Name: {agent_name}
+        Theoretically Possible Target Agents: {json.dumps(possible_targets)}
+
+        Based on the agent's instructions, configuration, and callback logic provided below, determine which of the 'Theoretically Possible Target Agents' this agent actually intends to transfer to.
+        A transfer might be explicitly mentioned in the instructions (e.g., "transfer to the billing agent" or a tool call like `set_active_flow` with flow="billing") or within the callback logic (e.g., `Part.from_agent_transfer`).
+        Only include targets that have clear evidence of being an intended destination.
+
+        Agent Files Content:
+        {agent_files_content}
+        """
+
+        try:
+            llm_response = await gemini_client.generate_async(
+                prompt=prompt,
+                response_mime_type="application/json",
+                response_schema=DesiredTransfersResult,
+                temperature=0.0,
+            )
+
+            if llm_response:
+                targets = getattr(llm_response, "desired_target_agents", [])
+                if isinstance(llm_response, dict):
+                    targets = llm_response.get("desired_target_agents", [])
+
+                for t in targets:
+                    # Validate that the returned target is one of the possible targets
+                    for pt in possible_targets:
+                        if t.lower() == pt.lower():
+                            desired_transfers.add((agent_name, pt))
+                            break
+        except Exception as e:
+            err_msg = f"LLM desired transfer extraction failed for '{agent_name}': {e}"
+            print(f"Warning: {err_msg}")
+            if errors is not None:
+                errors.append(err_msg)
+
+    tasks = [process_agent(agent_name, targets) for agent_name, targets in outbound_transfers.items()]
+    await asyncio.gather(*tasks)
+
+    return desired_transfers
