@@ -16,15 +16,17 @@
 """Main execution script for GECX evaluation coverage analyzer."""
 
 import argparse
+import asyncio
+import json
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from ingestion import ingest_agent_project
 from instruction_coverage import (
     analyze_instruction_categories,
-    extract_instruction_coverage,
     determine_desired_transfers_with_llm,
+    extract_instruction_coverage,
 )
 
 from cxas_scrapi.utils.gemini import GeminiGenerate
@@ -45,10 +47,30 @@ def generate_json_report(
     total_callbacks: Set[str],
     covered_callbacks: Set[str],
     desired_transfers: Set[Tuple[str, str]],
-    errors: List[str] = None,
-) -> dict:
-    """Generates a JSON coverage report and returns the data."""
-    import json
+    errors: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """Generates a JSON coverage report and returns the data.
+
+    Args:
+        output_file: Path where the JSON report will be written.
+        total_tools: Set of all declared tool names.
+        covered_tools: Set of tool names covered by unit tests.
+        phantom_tools_by_file: Mapping of evaluation files to phantom tools.
+        eval_files: List of all evaluation and test files scanned.
+        declared_transfers: List of declared sub-agent transitions.
+        covered_transfers: Mapping of transitions to covering evaluations.
+        instruction_segments: List of all parsed instruction segments.
+        covered_instruction_segments: List of covered instruction segments.
+        instruction_files: List of instruction files parsed.
+        agent_dir: Root directory of the agent project.
+        total_callbacks: Set of all discovered callbacks.
+        covered_callbacks: Set of covered callbacks.
+        desired_transfers: Set of desired sub-agent transfers.
+        errors: Optional list of execution error messages.
+
+    Returns:
+        A dictionary containing the complete structured coverage report data.
+    """
     uncovered_tools = total_tools - covered_tools
     tool_coverage_pct = (
         (len(covered_tools) / len(total_tools) * 100.0) if total_tools else 0.0
@@ -74,8 +96,8 @@ def generate_json_report(
         (covered_cbs / total_cbs * 100.0) if total_cbs else 0.0
     )
 
-    category_counts = {}
-    category_covered_counts = {}
+    category_counts: Dict[str, int] = {}
+    category_covered_counts: Dict[str, int] = {}
 
     for instruction_segment in instruction_segments:
         cat = instruction_segment["category"]
@@ -87,8 +109,7 @@ def generate_json_report(
 
     output_file.parent.mkdir(parents=True, exist_ok=True)
 
-    # Serialize path objects to strings for JSON
-    def _path_to_str(p):
+    def _path_to_str(p: Path) -> str:
         try:
             return str(p.relative_to(agent_dir))
         except ValueError:
@@ -103,15 +124,17 @@ def generate_json_report(
         desired = (from_a, to_a) in desired_transfers
         tested = (from_a, to_a) in covered_transfers
         evals = covered_transfers.get((from_a, to_a), [])
-        transfers_list.append({
-            "from_agent": from_a,
-            "to_agent": to_a,
-            "is_desired": desired,
-            "is_tested": tested,
-            "covering_evals": evals
-        })
+        transfers_list.append(
+            {
+                "from_agent": from_a,
+                "to_agent": to_a,
+                "is_desired": desired,
+                "is_tested": tested,
+                "covering_evals": evals,
+            }
+        )
 
-    json_data = {
+    json_data: Dict[str, Any] = {
         "metrics": {
             "tool_coverage_percent": tool_coverage_pct,
             "instruction_segment_coverage_percent": overall_segment_pct,
@@ -128,24 +151,25 @@ def generate_json_report(
             "category_counts": category_counts,
             "category_covered_counts": category_covered_counts,
         },
-        "errors": errors if errors else [],
+        "errors": errors or [],
         "phantom_tools_by_file": phantom_tools_str_keys,
         "tools": {
-            "covered": sorted(list(covered_tools)),
-            "uncovered": sorted(list(uncovered_tools))
+            "covered": sorted(covered_tools),
+            "uncovered": sorted(uncovered_tools),
         },
         "callbacks": {
-            "covered": sorted(list(covered_callbacks)),
-            "uncovered": sorted(list(total_callbacks - covered_callbacks))
+            "covered": sorted(covered_callbacks),
+            "uncovered": sorted(total_callbacks - covered_callbacks),
         },
         "agent_transfers": transfers_list,
         "scanned_files": {
             "instructions": [_path_to_str(f) for f in instruction_files],
-            "evaluations": [_path_to_str(f) for f in eval_files]
+            "evaluations": [_path_to_str(f) for f in eval_files],
         },
         "instruction_segments": instruction_segments,
-        "covered_instruction_segments": covered_instruction_segments
+        "covered_instruction_segments": covered_instruction_segments,
     }
+
     with open(output_file, "w", encoding="utf-8") as f:
         json.dump(json_data, f, indent=2)
 
@@ -153,8 +177,15 @@ def generate_json_report(
     return json_data
 
 
-def generate_markdown_report(json_data: dict, output_file: Path) -> None:
-    """Generates a comprehensive markdown coverage report from JSON data."""
+def generate_markdown_report(
+    json_data: Dict[str, Any], output_file: Path
+) -> None:
+    """Generates a comprehensive markdown coverage report from JSON data.
+
+    Args:
+        json_data: The structured coverage report data dictionary.
+        output_file: Path to write the generated markdown report.
+    """
     report = []
     report.append("# Evaluation Coverage Report\n")
 
@@ -163,9 +194,10 @@ def generate_markdown_report(json_data: dict, output_file: Path) -> None:
         report.append("> [!CAUTION]")
         report.append(
             "> **API Errors Occurred:** The coverage calculations may be "
-            "inaccurate or incomplete due to the following errors during execution:"
+            "inaccurate or incomplete due to the following errors during "
+            "execution:"
         )
-        for err in set(errors):
+        for err in sorted(set(errors)):
             report.append(f"> *   {err}")
         report.append("\n")
 
@@ -187,19 +219,23 @@ def generate_markdown_report(json_data: dict, output_file: Path) -> None:
     report.append("| :--- | :---: | :---: | :---: |")
     report.append(
         f"| **Tool Integrations** | {metrics['total_tools']} | "
-        f"{metrics['covered_tools']} | {metrics['tool_coverage_percent']:.1f}% |"
+        f"{metrics['covered_tools']} | "
+        f"{metrics['tool_coverage_percent']:.1f}% |"
     )
     report.append(
         f"| **Instruction Segments** | {metrics['total_segments']} | "
-        f"{metrics['covered_segments']} | {metrics['instruction_segment_coverage_percent']:.1f}% |"
+        f"{metrics['covered_segments']} | "
+        f"{metrics['instruction_segment_coverage_percent']:.1f}% |"
     )
     report.append(
         f"| **Agent Transfers** | {metrics['total_transfers']} | "
-        f"{metrics['covered_transfers']} | {metrics['transfer_coverage_percent']:.1f}% |"
+        f"{metrics['covered_transfers']} | "
+        f"{metrics['transfer_coverage_percent']:.1f}% |"
     )
     report.append(
         f"| **Callbacks** | {metrics['total_callbacks']} | "
-        f"{metrics['covered_callbacks']} | {metrics['callback_coverage_percent']:.1f}% |"
+        f"{metrics['covered_callbacks']} | "
+        f"{metrics['callback_coverage_percent']:.1f}% |"
     )
     report.append("\n")
 
@@ -287,7 +323,9 @@ def generate_markdown_report(json_data: dict, output_file: Path) -> None:
         tested = "Yes" if transfer["is_tested"] else "No"
         evals_list = transfer.get("covering_evals", [])
         evals_str = ", ".join(evals_list) if evals_list else "None"
-        report.append(f"| `{from_a}` | `{to_a}` | {desired} | {tested} | {evals_str} |")
+        report.append(
+            f"| `{from_a}` | `{to_a}` | {desired} | {tested} | {evals_str} |"
+        )
     report.append("\n---\n")
 
     report.append("## Instruction Files Scanned\n")
@@ -327,7 +365,8 @@ def generate_markdown_report(json_data: dict, output_file: Path) -> None:
     print(f"Successfully generated markdown coverage report at: {output_file}")
 
 
-async def main():
+async def main() -> None:
+    """Main CLI entry point for calculating agent evaluation coverage."""
     parser = argparse.ArgumentParser(description="Calculate eval coverage.")
     parser.add_argument(
         "--agent-dir",
@@ -355,7 +394,10 @@ async def main():
     parser.add_argument(
         "--model",
         default="gemini-2.5-flash",
-        help="Gemini model name to use for analysis (default: gemini-2.5-flash).",
+        help=(
+            "Gemini model name to use for analysis "
+            "(default: gemini-2.5-flash)."
+        ),
     )
     args = parser.parse_args()
 
@@ -402,7 +444,11 @@ async def main():
     )
 
     # Filter out untestable segments
-    testable_segments = [s for s in agent_data.instruction_segments if s.get("is_testable", True)]
+    testable_segments = [
+        s
+        for s in agent_data.instruction_segments
+        if s.get("is_testable", True)
+    ]
 
     # 3. Run instruction coverage analysis pass
     instruction_segments, covered_instruction_segments = (
@@ -457,5 +503,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    import asyncio
     asyncio.run(main())

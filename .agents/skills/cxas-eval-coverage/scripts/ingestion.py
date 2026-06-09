@@ -14,10 +14,10 @@
 
 """Data ingestion module for GECX evaluation coverage analyzer."""
 
-import json
-import re
 from dataclasses import dataclass, field
+import json
 from pathlib import Path
+import re
 from typing import Any, Dict, List, Set, Tuple
 
 import yaml
@@ -26,7 +26,7 @@ from utils import find_target_agent, parse_instruction_content
 
 @dataclass
 class AgentProjectData:
-    """A unified data model representing the fully ingested GECX agent project."""
+    """A unified data model representing the fully ingested GECX project."""
 
     agent_dir: Path
     all_tools: Set[str] = field(default_factory=set)
@@ -65,11 +65,24 @@ def _append_expectations(
     eval_name: str,
     file_name: str,
 ) -> None:
+    """Appends expectation criteria to the evaluation chunks list.
+
+    Args:
+        data: The unified AgentProjectData instance being populated.
+        expectations: A list of expectation text strings.
+        prefix: A string prefix identifying the evaluation type.
+        eval_name: The display name of the evaluation.
+        file_name: The name of the file containing the evaluation.
+    """
     if expectations:
+        exp_lines = "\n".join(f"- {exp}" for exp in expectations)
         data.eval_chunks.append(
             {
-                "text": f"{prefix}: {eval_name}\nExpectations:\n"
-                + "\n".join(f"- {exp}" for exp in expectations),
+                "text": (
+                    f"{prefix}: {eval_name}\n"
+                    "Expectations:\n"
+                    f"{exp_lines}"
+                ),
                 "eval_name": eval_name,
                 "file_name": file_name,
             }
@@ -77,7 +90,14 @@ def _append_expectations(
 
 
 def find_tools_local(tools_dir: Path) -> Set[str]:
-    """Finds all declared tool names in the tools directory."""
+    """Finds all declared tool names in the tools directory.
+
+    Args:
+        tools_dir: The Path to the agent project's tools directory.
+
+    Returns:
+        A set of unique tool names discovered in the tools directory.
+    """
     tools = set()
     if not tools_dir.exists():
         return tools
@@ -101,13 +121,21 @@ def find_tools_local(tools_dir: Path) -> Set[str]:
                         if not re.match(r"^[0-9a-fA-F-]{36}$", str(name_val)):
                             tool_name = name_val
                 tools.add(tool_name)
-            except Exception:
+            except (json.JSONDecodeError, yaml.YAMLError, OSError):
                 tools.add(p.stem)
     return tools
 
 
 def ingest_agent_project(agent_dir: Path) -> AgentProjectData:
-    """Ingests and parses all agent files in a single pass, building AgentProjectData."""
+    """Ingests and parses all agent files, building AgentProjectData.
+
+    Args:
+        agent_dir: The Path to the root directory of the GECX agent project.
+
+    Returns:
+        A populated AgentProjectData container with parsed tools, evaluations,
+        transfers, and instructions.
+    """
     data = AgentProjectData(agent_dir=agent_dir)
 
     # Find declared tools
@@ -120,18 +148,30 @@ def ingest_agent_project(agent_dir: Path) -> AgentProjectData:
     tool_tests_dir = agent_dir / "tool_tests"
     evals_dir = agent_dir / "evals"
     tests_dir = agent_dir / "tests"
-    for d in (eval_dir, eval_dataset_dir, tool_tests_dir, evals_dir, tests_dir):
+
+    seen_eval_files: Set[Path] = set()
+    directories = (
+        eval_dir,
+        eval_dataset_dir,
+        tool_tests_dir,
+        evals_dir,
+        tests_dir,
+    )
+    for d in directories:
         if d.exists():
             for p in d.glob("**/*"):
                 if p.is_file() and p.suffix in (".json", ".yaml", ".yml"):
-                    if p not in data.eval_files:
+                    if p not in seen_eval_files:
+                        seen_eval_files.add(p)
                         data.eval_files.append(p)
 
     for p in agent_dir.glob("*.yaml"):
-        if p.is_file() and p not in data.eval_files:
+        if p.is_file() and p not in seen_eval_files:
+            seen_eval_files.add(p)
             data.eval_files.append(p)
     for p in agent_dir.glob("*.yml"):
-        if p.is_file() and p not in data.eval_files:
+        if p.is_file() and p not in seen_eval_files:
+            seen_eval_files.add(p)
             data.eval_files.append(p)
 
     unit_tested_tools: Set[str] = set()
@@ -154,7 +194,7 @@ def ingest_agent_project(agent_dir: Path) -> AgentProjectData:
             agents[display_name] = agent_data
             root_agents.add(display_name)
             data.agent_directories[display_name] = af.parent
-        except Exception:
+        except (json.JSONDecodeError, yaml.YAMLError, OSError):
             pass
 
     for display_name, agent_data in agents.items():
@@ -191,8 +231,9 @@ def ingest_agent_project(agent_dir: Path) -> AgentProjectData:
                 or ef.stem
             )
 
-            if "tests" in eval_content and isinstance(eval_content["tests"], list):
-                for test_case in eval_content["tests"]:
+            tests_obj = eval_content.get("tests")
+            if isinstance(tests_obj, list):
+                for test_case in tests_obj:
                     if isinstance(test_case, dict):
                         t_name = test_case.get("name", "Unnamed")
                         tool_name = test_case.get("tool")
@@ -202,7 +243,11 @@ def ingest_agent_project(agent_dir: Path) -> AgentProjectData:
                             args_str = json.dumps(test_case.get("args", {}))
                             data.eval_chunks.append(
                                 {
-                                    "text": f"Tool Test: {t_name}\nTool: {tool_name}\nArgs: {args_str}",
+                                    "text": (
+                                        f"Tool Test: {t_name}\n"
+                                        f"Tool: {tool_name}\n"
+                                        f"Args: {args_str}"
+                                    ),
                                     "eval_name": t_name or ef.stem,
                                     "file_name": ef.name,
                                 }
@@ -217,9 +262,8 @@ def ingest_agent_project(agent_dir: Path) -> AgentProjectData:
                     turn_text = []
                     for step in steps:
                         if "userInput" in step:
-                            turn_text.append(
-                                f"User: {step['userInput'].get('text', '')}"
-                            )
+                            u_input = step["userInput"].get("text", "")
+                            turn_text.append(f"User: {u_input}")
 
                         expectation = step.get("expectation")
                         if isinstance(expectation, dict):
@@ -233,9 +277,8 @@ def ingest_agent_project(agent_dir: Path) -> AgentProjectData:
 
                             # Compile expectation criteria for vector chunks
                             if "note" in expectation:
-                                turn_text.append(
-                                    f"Expectation Note: {expectation['note']}"
-                                )
+                                n_val = expectation["note"]
+                                turn_text.append(f"Expectation Note: {n_val}")
                             if "agentTransfer" in expectation:
                                 target_ag = expectation["agentTransfer"].get(
                                     "targetAgent", ""
@@ -244,27 +287,33 @@ def ingest_agent_project(agent_dir: Path) -> AgentProjectData:
                                     f"Expects Transfer to: {target_ag}"
                                 )
                             if "toolCall" in expectation:
-                                turn_text.append(
-                                    f"Expects Tool Call: {expectation['toolCall'].get('tool', '')}"
+                                t_val = expectation["toolCall"].get(
+                                    "tool", ""
                                 )
+                                turn_text.append(f"Expects Tool Call: {t_val}")
                             if "updatedVariables" in expectation:
+                                vars_dump = json.dumps(
+                                    expectation["updatedVariables"]
+                                )
                                 turn_text.append(
-                                    f"Expects Updated Variables: {json.dumps(expectation['updatedVariables'])}"
+                                    f"Expects Updated Variables: {vars_dump}"
                                 )
 
                     if turn_text:
+                        turns_joined = "\n".join(turn_text)
                         data.eval_chunks.append(
                             {
-                                "text": f"Native Eval: {ef.stem} (Turn {turn_idx})\n"
-                                + "\n".join(turn_text),
+                                "text": (
+                                    f"Native Eval: {ef.stem} "
+                                    f"(Turn {turn_idx})\n{turns_joined}"
+                                ),
                                 "eval_name": eval_name,
                                 "file_name": ef.name,
                             }
                         )
 
                 # Track agent transfers
-                target_agents = []
-                find_target_agent(eval_content, target_agents)
+                target_agents = find_target_agent(eval_content)
 
                 current_agent = default_root_agent
                 for target in target_agents:
@@ -283,14 +332,17 @@ def ingest_agent_project(agent_dir: Path) -> AgentProjectData:
                 user_facts = scenario.get("userFacts", [])
                 steps_text = [f"Task: {task}"]
                 for fact in user_facts:
-                    steps_text.append(
-                        f"Fact: {fact.get('name', '')} = {fact.get('value', '')}"
-                    )
+                    name_val = fact.get("name", "")
+                    value_val = fact.get("value", "")
+                    steps_text.append(f"Fact: {name_val} = {value_val}")
 
+                steps_joined = "\n".join(steps_text)
                 data.eval_chunks.append(
                     {
-                        "text": f"Native Simulation Eval: {eval_name}\n"
-                        + "\n".join(steps_text),
+                        "text": (
+                            f"Native Simulation Eval: {eval_name}\n"
+                            f"{steps_joined}"
+                        ),
                         "eval_name": eval_name,
                         "file_name": ef.name,
                     }
@@ -316,14 +368,20 @@ def ingest_agent_project(agent_dir: Path) -> AgentProjectData:
                                 file_tools.add(tool_call["action"])
 
                         if "tool_calls" in turn:
-                            turn_str += f"\nTool Calls: {json.dumps(turn['tool_calls'])}"
+                            t_dump = json.dumps(turn["tool_calls"])
+                            turn_str += f"\nTool Calls: {t_dump}"
                         turns_text.append(turn_str)
 
                     if turns_text:
+                        tags_str = ", ".join(tags)
+                        turns_joined = "\n".join(turns_text)
                         data.eval_chunks.append(
                             {
-                                "text": f"Conversation: {c_name}\nTags: {', '.join(tags)}\n"
-                                + "\n".join(turns_text),
+                                "text": (
+                                    f"Conversation: {c_name}\n"
+                                    f"Tags: {tags_str}\n"
+                                    f"{turns_joined}"
+                                ),
                                 "eval_name": c_name or ef.stem,
                                 "file_name": ef.name,
                             }
@@ -331,7 +389,11 @@ def ingest_agent_project(agent_dir: Path) -> AgentProjectData:
 
                     expectations = conv.get("expectations", [])
                     _append_expectations(
-                        data, expectations, "Conversation", c_name or ef.stem, ef.name
+                        data,
+                        expectations,
+                        "Conversation",
+                        c_name or ef.stem,
+                        ef.name,
                     )
 
             # SCRAPI Simulation Evals
@@ -346,14 +408,21 @@ def ingest_agent_project(agent_dir: Path) -> AgentProjectData:
                         success = step.get("success_criteria", "")
                         guide = step.get("response_guide", "")
                         steps_text.append(
-                            f"Goal: {goal}\nSuccess Criteria: {success}\nResponse Guide: {guide}"
+                            f"Goal: {goal}\n"
+                            f"Success Criteria: {success}\n"
+                            f"Response Guide: {guide}"
                         )
 
                     if steps_text:
+                        tags_str = ", ".join(tags)
+                        steps_joined = "\n".join(steps_text)
                         data.eval_chunks.append(
                             {
-                                "text": f"Simulation Eval: {e_name}\nTags: {', '.join(tags)}\n"
-                                + "\n".join(steps_text),
+                                "text": (
+                                    f"Simulation Eval: {e_name}\n"
+                                    f"Tags: {tags_str}\n"
+                                    f"{steps_joined}"
+                                ),
                                 "eval_name": e_name or ef.stem,
                                 "file_name": ef.name,
                             }
@@ -361,7 +430,11 @@ def ingest_agent_project(agent_dir: Path) -> AgentProjectData:
 
                     expectations = eval_item.get("expectations", [])
                     _append_expectations(
-                        data, expectations, "Simulation Eval", e_name or ef.stem, ef.name
+                        data,
+                        expectations,
+                        "Simulation Eval",
+                        e_name or ef.stem,
+                        ef.name,
                     )
 
                     # Extract tools from expectations & success criteria
@@ -373,16 +446,17 @@ def ingest_agent_project(agent_dir: Path) -> AgentProjectData:
                         if "goal" in step:
                             text_to_scan.append(step["goal"])
 
-                    for text in text_to_scan:
-                        if not isinstance(text, str):
+                    for text_val in text_to_scan:
+                        if not isinstance(text_val, str):
                             continue
                         for tool in data.all_tools:
+                            escaped = re.escape(tool)
                             if re.search(
-                                rf"\b{re.escape(tool)}\b", text, re.IGNORECASE
+                                rf"\b{escaped}\b", text_val, re.IGNORECASE
                             ):
                                 file_tools.add(tool)
 
-        except Exception as e:
+        except (json.JSONDecodeError, yaml.YAMLError, OSError) as e:
             print(f"Warning: Failed to ingest evaluation file {ef}: {e}")
 
         # Check for phantom tools & compile coverage
@@ -397,13 +471,13 @@ def ingest_agent_project(agent_dir: Path) -> AgentProjectData:
     # Ingest all instruction files recursively
     agents_dir = agent_dir / "agents"
 
-    def parse_instruction_file(filepath: Path, agent_name: str):
+    def parse_instruction_file(filepath: Path, agent_name: str) -> None:
         try:
             with open(filepath, "r", encoding="utf-8") as f:
                 content = f.read()
             segments = parse_instruction_content(content, agent_name)
             data.instruction_segments.extend(segments)
-        except Exception as e:
+        except OSError as e:
             print(f"Warning: Failed to parse instructions {filepath}: {e}")
 
     if agents_dir.exists() and agents_dir.is_dir():
@@ -412,10 +486,10 @@ def ingest_agent_project(agent_dir: Path) -> AgentProjectData:
                 data.instruction_files.append(p)
                 parse_instruction_file(p, p.parent.name)
 
-    p = agent_dir / "global_instruction.txt"
-    if p.is_file():
-        data.instruction_files.append(p)
-        parse_instruction_file(p, "Global")
+    glob_p = agent_dir / "global_instruction.txt"
+    if glob_p.is_file():
+        data.instruction_files.append(glob_p)
+        parse_instruction_file(glob_p, "Global")
 
     # Discover callback tests
     if agents_dir.exists() and agents_dir.is_dir():

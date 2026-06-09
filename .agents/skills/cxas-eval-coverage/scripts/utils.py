@@ -19,31 +19,63 @@ import re
 from typing import Any, Dict, List
 
 
-def find_target_agent(obj: Any, ta_list: List[str]) -> None:
-    """Recursively searches for 'targetAgent' fields in a dictionary."""
+def find_target_agent(obj: Any) -> List[str]:
+    """Recursively searches for 'targetAgent' fields in an object.
+
+    Args:
+        obj: The parsed configuration object (dict, list, etc.) to search.
+
+    Returns:
+        A list of target agent names discovered within the object.
+    """
+    target_agents: List[str] = []
     if isinstance(obj, dict):
         for k, v in obj.items():
             if k == "targetAgent":
-                ta_list.append(v)
+                target_agents.append(v)
             else:
-                find_target_agent(v, ta_list)
+                target_agents.extend(find_target_agent(v))
     elif isinstance(obj, list):
         for item in obj:
-            find_target_agent(item, ta_list)
+            target_agents.extend(find_target_agent(item))
+    return target_agents
 
 
 def dot_product(v1: List[float], v2: List[float]) -> float:
-    """Calculates the dot product of two vectors."""
+    """Calculates the dot product of two vectors.
+
+    Args:
+        v1: The first vector of floating-point numbers.
+        v2: The second vector of floating-point numbers.
+
+    Returns:
+        The scalar dot product of the two vectors.
+    """
     return sum(a * b for a, b in zip(v1, v2, strict=True))
 
 
 def magnitude(v: List[float]) -> float:
-    """Calculates the Euclidean magnitude of a vector."""
-    return math.sqrt(sum(a * a for a in v))
+    """Calculates the Euclidean magnitude of a vector.
+
+    Args:
+        v: A vector of floating-point numbers.
+
+    Returns:
+        The Euclidean norm (magnitude) of the vector.
+    """
+    return math.hypot(*v)
 
 
 def cosine_similarity(v1: List[float], v2: List[float]) -> float:
-    """Calculates the cosine similarity between two vectors."""
+    """Calculates the cosine similarity between two vectors.
+
+    Args:
+        v1: The first vector of floating-point numbers.
+        v2: The second vector of floating-point numbers.
+
+    Returns:
+        The cosine similarity float between -1.0 and 1.0 (0.0 if zero norm).
+    """
     mag1 = magnitude(v1)
     mag2 = magnitude(v2)
     if not mag1 or not mag2:
@@ -56,13 +88,22 @@ def parse_instruction_content(
 ) -> List[Dict[str, Any]]:
     """Parses instruction file content and splits it into structured segments.
 
-    Supports both XML-tagged sections (e.g., <Rules>...) and raw files (fallback to 'Rules').
+    Supports both XML-tagged sections (e.g., <Rules>...) and raw files
+    (fallback to 'Rules').
+
+    Args:
+        content: The raw text content of the instruction file.
+        agent_name: The name of the agent owning the instructions.
+
+    Returns:
+        A list of instruction segment dictionaries containing full text and
+        metadata.
     """
-    instruction_segments = []
+    instruction_segments: List[Dict[str, Any]] = []
 
     def add_instruction_segment(
         quote_lines: List[str], cat_name: str, a_name: str
-    ):
+    ) -> None:
         q_text = " ".join(quote_lines).strip()
         if len(q_text) > 10:
             q_text = re.sub(r"^\d+[\.\)]\s*", "", q_text)
@@ -71,19 +112,23 @@ def parse_instruction_content(
             directive_title = " ".join(q_text.split()[:5])
             if len(directive_title) < len(q_text):
                 directive_title += "..."
+
+            quote_val = (
+                f'"{q_text[:200]}..."' if len(q_text) > 200 else f'"{q_text}"'
+            )
             instruction_segments.append(
                 {
                     "agent": a_name,
                     "category": cat_name,
                     "directive": directive_title,
-                    "quote": f'"{q_text[:200]}..."'
-                    if len(q_text) > 200
-                    else f'"{q_text}"',
+                    "quote": quote_val,
                     "full_text": q_text,
                 }
             )
 
-    def chunk_lines_into_segments(lines_list: List[str], cat_name: str):
+    def chunk_lines_into_segments(
+        lines_list: List[str], cat_name: str
+    ) -> None:
         current_quote = []
         for line in lines_list:
             stripped = line.strip()
@@ -95,10 +140,10 @@ def parse_instruction_content(
                 or stripped.startswith("*")
             ):
                 if current_quote:
-                    add_instruction_segment(current_quote, cat_name, agent_name)
-                    current_quote = [stripped]
-                else:
-                    current_quote = [stripped]
+                    add_instruction_segment(
+                        current_quote, cat_name, agent_name
+                    )
+                current_quote = [stripped]
             else:
                 current_quote.append(stripped)
         if current_quote:
