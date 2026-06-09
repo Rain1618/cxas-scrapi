@@ -114,14 +114,27 @@ def ingest_agent_project(agent_dir: Path) -> AgentProjectData:
     tools_dir = agent_dir / "tools"
     data.all_tools = find_tools_local(tools_dir)
 
-    # Find all evaluation files
+    # Find all evaluation and test files
     eval_dir = agent_dir / "evaluations"
     eval_dataset_dir = agent_dir / "evaluationDatasets"
-    for d in (eval_dir, eval_dataset_dir):
+    tool_tests_dir = agent_dir / "tool_tests"
+    evals_dir = agent_dir / "evals"
+    tests_dir = agent_dir / "tests"
+    for d in (eval_dir, eval_dataset_dir, tool_tests_dir, evals_dir, tests_dir):
         if d.exists():
             for p in d.glob("**/*"):
                 if p.is_file() and p.suffix in (".json", ".yaml", ".yml"):
-                    data.eval_files.append(p)
+                    if p not in data.eval_files:
+                        data.eval_files.append(p)
+
+    for p in agent_dir.glob("*.yaml"):
+        if p.is_file() and p not in data.eval_files:
+            data.eval_files.append(p)
+    for p in agent_dir.glob("*.yml"):
+        if p.is_file() and p not in data.eval_files:
+            data.eval_files.append(p)
+
+    unit_tested_tools: Set[str] = set()
 
     # Discover declared Agent Transfers from Agents config
     agent_files = []
@@ -177,6 +190,23 @@ def ingest_agent_project(agent_dir: Path) -> AgentProjectData:
                 or eval_content.get("name")
                 or ef.stem
             )
+
+            if "tests" in eval_content and isinstance(eval_content["tests"], list):
+                for test_case in eval_content["tests"]:
+                    if isinstance(test_case, dict):
+                        t_name = test_case.get("name", "Unnamed")
+                        tool_name = test_case.get("tool")
+                        if tool_name and isinstance(tool_name, str):
+                            file_tools.add(tool_name)
+                            unit_tested_tools.add(tool_name)
+                            args_str = json.dumps(test_case.get("args", {}))
+                            data.eval_chunks.append(
+                                {
+                                    "text": f"Tool Test: {t_name}\nTool: {tool_name}\nArgs: {args_str}",
+                                    "eval_name": t_name or ef.stem,
+                                    "file_name": ef.name,
+                                }
+                            )
 
             # GECX native golden evaluations
             if "golden" in eval_content:
@@ -360,8 +390,9 @@ def ingest_agent_project(agent_dir: Path) -> AgentProjectData:
         if phantoms:
             data.phantom_tools_by_file[ef] = phantoms
 
-        data.covered_tools.update(file_tools & data.all_tools)
         data.called_tools.update(file_tools)
+
+    data.covered_tools = unit_tested_tools & data.all_tools
 
     # Ingest all instruction files recursively
     agents_dir = agent_dir / "agents"

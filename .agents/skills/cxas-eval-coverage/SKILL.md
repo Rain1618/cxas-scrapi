@@ -44,6 +44,6 @@ python .agents/skills/cxas-eval-coverage/scripts/calculate_coverage.py \
 *Note: The `--model` flag allows you to choose the Gemini model (default is `gemini-2.5-flash`, but `gemini-2.5-pro` can be used for higher reasoning accuracy).*
 
 Supported Coverage Metrics:
-*   **Tool Coverage**: Scans the `tools/` directory and maps each tool against explicit calls in Golden Evals or expectation strings in Simulation Evals.
+*   **Tool Coverage**: Scans the `tools/` directory and marks a tool as covered if and only if it has an associated unit test (using `ToolEvals` via a `tests:` block in YAML/JSON test files).
 *   **Callback Coverage**: Checks for unit tests associated with each callback.
 *   **Instruction Segment Coverage**: Uses an XML tag fallback structure combined with an **LLM categorization pass** to filter out non-testable conversational fillers (maintaining line-by-line traceability) before performing vector-similarity-driven coverage analysis.
