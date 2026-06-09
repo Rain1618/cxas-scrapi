@@ -30,7 +30,7 @@ from instruction_coverage import (
 from cxas_scrapi.utils.gemini import GeminiGenerate
 
 
-def generate_report(
+def generate_json_report(
     output_file: Path,
     total_tools: Set[str],
     covered_tools: Set[str],
@@ -46,8 +46,9 @@ def generate_report(
     covered_callbacks: Set[str],
     desired_transfers: Set[Tuple[str, str]],
     errors: List[str] = None,
-) -> None:
-    """Generates a comprehensive coverage report."""
+) -> dict:
+    """Generates a JSON coverage report and returns the data."""
+    import json
     uncovered_tools = total_tools - covered_tools
     tool_coverage_pct = (
         (len(covered_tools) / len(total_tools) * 100.0) if total_tools else 0.0
@@ -84,9 +85,80 @@ def generate_report(
                 category_covered_counts.get(cat, 0) + 1
             )
 
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+
+    # Serialize path objects to strings for JSON
+    def _path_to_str(p):
+        try:
+            return str(p.relative_to(agent_dir))
+        except ValueError:
+            return str(p)
+
+    phantom_tools_str_keys = {
+        _path_to_str(k): list(v) for k, v in phantom_tools_by_file.items()
+    }
+
+    transfers_list = []
+    for from_a, to_a in declared_transfers:
+        desired = (from_a, to_a) in desired_transfers
+        tested = (from_a, to_a) in covered_transfers
+        evals = covered_transfers.get((from_a, to_a), [])
+        transfers_list.append({
+            "from_agent": from_a,
+            "to_agent": to_a,
+            "is_desired": desired,
+            "is_tested": tested,
+            "covering_evals": evals
+        })
+
+    json_data = {
+        "metrics": {
+            "tool_coverage_percent": tool_coverage_pct,
+            "instruction_segment_coverage_percent": overall_segment_pct,
+            "transfer_coverage_percent": transfer_coverage_pct,
+            "callback_coverage_percent": callback_coverage_pct,
+            "total_tools": len(total_tools),
+            "covered_tools": len(covered_tools),
+            "total_segments": total_segments,
+            "covered_segments": total_covered,
+            "total_transfers": total_transfers,
+            "covered_transfers": total_transfers_covered,
+            "total_callbacks": total_cbs,
+            "covered_callbacks": covered_cbs,
+            "category_counts": category_counts,
+            "category_covered_counts": category_covered_counts,
+        },
+        "errors": errors if errors else [],
+        "phantom_tools_by_file": phantom_tools_str_keys,
+        "tools": {
+            "covered": sorted(list(covered_tools)),
+            "uncovered": sorted(list(uncovered_tools))
+        },
+        "callbacks": {
+            "covered": sorted(list(covered_callbacks)),
+            "uncovered": sorted(list(total_callbacks - covered_callbacks))
+        },
+        "agent_transfers": transfers_list,
+        "scanned_files": {
+            "instructions": [_path_to_str(f) for f in instruction_files],
+            "evaluations": [_path_to_str(f) for f in eval_files]
+        },
+        "instruction_segments": instruction_segments,
+        "covered_instruction_segments": covered_instruction_segments
+    }
+    with open(output_file, "w", encoding="utf-8") as f:
+        json.dump(json_data, f, indent=2)
+
+    print(f"Successfully generated JSON coverage report at: {output_file}")
+    return json_data
+
+
+def generate_markdown_report(json_data: dict, output_file: Path) -> None:
+    """Generates a comprehensive markdown coverage report from JSON data."""
     report = []
     report.append("# Evaluation Coverage Report\n")
 
+    errors = json_data.get("errors", [])
     if errors:
         report.append("> [!CAUTION]")
         report.append(
@@ -97,35 +169,37 @@ def generate_report(
             report.append(f"> *   {err}")
         report.append("\n")
 
-    if phantom_tools_by_file:
+    phantom_tools = json_data.get("phantom_tools_by_file", {})
+    if phantom_tools:
         report.append("> [!WARNING]")
         report.append(
             "> The following tools are referenced in evaluations but "
             "do not exist in the `tools/` directory:"
         )
-        for ef, phantoms in sorted(phantom_tools_by_file.items()):
+        for ef, phantoms in sorted(phantom_tools.items()):
             phantoms_str = ", ".join(f"`{p}`" for p in sorted(phantoms))
-            report.append(f"> *   `{ef.name}`: {phantoms_str}")
+            report.append(f"> *   `{ef}`: {phantoms_str}")
         report.append("\n")
 
+    metrics = json_data["metrics"]
     report.append("## Summary Metrics\n")
     report.append("| Metric | Total | Covered | Coverage % |")
     report.append("| :--- | :---: | :---: | :---: |")
     report.append(
-        f"| **Tool Integrations** | {len(total_tools)} | "
-        f"{len(covered_tools)} | {tool_coverage_pct:.1f}% |"
+        f"| **Tool Integrations** | {metrics['total_tools']} | "
+        f"{metrics['covered_tools']} | {metrics['tool_coverage_percent']:.1f}% |"
     )
     report.append(
-        f"| **Instruction Segments** | {total_segments} | "
-        f"{total_covered} | {overall_segment_pct:.1f}% |"
+        f"| **Instruction Segments** | {metrics['total_segments']} | "
+        f"{metrics['covered_segments']} | {metrics['instruction_segment_coverage_percent']:.1f}% |"
     )
     report.append(
-        f"| **Agent Transfers** | {total_transfers} | "
-        f"{total_transfers_covered} | {transfer_coverage_pct:.1f}% |"
+        f"| **Agent Transfers** | {metrics['total_transfers']} | "
+        f"{metrics['covered_transfers']} | {metrics['transfer_coverage_percent']:.1f}% |"
     )
     report.append(
-        f"| **Callbacks** | {total_cbs} | "
-        f"{covered_cbs} | {callback_coverage_pct:.1f}% |"
+        f"| **Callbacks** | {metrics['total_callbacks']} | "
+        f"{metrics['covered_callbacks']} | {metrics['callback_coverage_percent']:.1f}% |"
     )
     report.append("\n")
 
@@ -133,9 +207,11 @@ def generate_report(
     report.append("| Category | Total | Covered | Coverage % |")
     report.append("| :--- | :---: | :---: | :---: |")
 
-    for cat in sorted(category_counts.keys()):
-        total = category_counts[cat]
-        covered = category_covered_counts.get(cat, 0)
+    cat_counts = metrics.get("category_counts", {})
+    cat_cov_counts = metrics.get("category_covered_counts", {})
+    for cat in sorted(cat_counts.keys()):
+        total = cat_counts[cat]
+        covered = cat_cov_counts.get(cat, 0)
         pct = (covered / total * 100.0) if total else 0.0
         report.append(f"| **{cat}** | {total} | {covered} | {pct:.1f}% |")
 
@@ -143,7 +219,7 @@ def generate_report(
 
     report.append("## Uncovered Segments\n")
     has_uncovered = False
-    for instruction_segment in instruction_segments:
+    for instruction_segment in json_data["instruction_segments"]:
         if instruction_segment["covered"] == "No":
             if not has_uncovered:
                 report.append("### Uncovered Segments")
@@ -160,6 +236,7 @@ def generate_report(
     report.append("---\n")
     report.append("## Tool Coverage Breakdown\n")
     report.append("### Covered Tools\n")
+    covered_tools = json_data["tools"]["covered"]
     if covered_tools:
         for t in sorted(covered_tools):
             report.append(f"*   `{t}`")
@@ -168,6 +245,7 @@ def generate_report(
     report.append("")
 
     report.append("### Uncovered Tools\n")
+    uncovered_tools = json_data["tools"]["uncovered"]
     if uncovered_tools:
         for t in sorted(uncovered_tools):
             report.append(f"*   `{t}`")
@@ -175,10 +253,12 @@ def generate_report(
         report.append("*All tools are fully covered by evaluations!*")
     report.append("")
 
+    total_callbacks = metrics["total_callbacks"]
     if total_callbacks:
         report.append("---\n")
         report.append("## Callback Coverage Breakdown\n")
         report.append("### Covered Callbacks\n")
+        covered_callbacks = json_data["callbacks"]["covered"]
         if covered_callbacks:
             for cb in sorted(covered_callbacks):
                 report.append(f"*   `{cb}`")
@@ -187,7 +267,7 @@ def generate_report(
         report.append("")
 
         report.append("### Uncovered Callbacks\n")
-        uncovered_callbacks = total_callbacks - covered_callbacks
+        uncovered_callbacks = json_data["callbacks"]["uncovered"]
         if uncovered_callbacks:
             for cb in sorted(uncovered_callbacks):
                 report.append(f"*   `{cb}`")
@@ -200,24 +280,19 @@ def generate_report(
     report.append("## Agent Transfer Coverage\n")
     report.append("| From Agent | To Agent | Desired? | Tested? | Eval Names |")
     report.append("| :--- | :--- | :---: | :---: | :--- |")
-    for from_a, to_a in declared_transfers:
-        desired = "Yes" if (from_a, to_a) in desired_transfers else "No"
-        tested = "Yes" if (from_a, to_a) in covered_transfers else "No"
-        evals_str = (
-            ", ".join(covered_transfers[(from_a, to_a)])
-            if (from_a, to_a) in covered_transfers
-            else "None"
-        )
+    for transfer in json_data.get("agent_transfers", []):
+        from_a = transfer["from_agent"]
+        to_a = transfer["to_agent"]
+        desired = "Yes" if transfer["is_desired"] else "No"
+        tested = "Yes" if transfer["is_tested"] else "No"
+        evals_list = transfer.get("covering_evals", [])
+        evals_str = ", ".join(evals_list) if evals_list else "None"
         report.append(f"| `{from_a}` | `{to_a}` | {desired} | {tested} | {evals_str} |")
     report.append("\n---\n")
 
     report.append("## Instruction Files Scanned\n")
-    for f in instruction_files:
-        try:
-            rel_f = f.relative_to(agent_dir)
-        except ValueError:
-            rel_f = f
-        report.append(f"*   `{rel_f}`")
+    for f in json_data["scanned_files"]["instructions"]:
+        report.append(f"*   `{f}`")
     report.append("")
 
     report.append(
@@ -229,7 +304,7 @@ def generate_report(
         "|---|-------|----------|-------------------|----------|"
         "-------------------|"
     )
-    for idx, s in enumerate(instruction_segments, start=1):
+    for idx, s in enumerate(json_data["instruction_segments"], start=1):
         report.append(
             f"| {idx} | {s['agent']} | {s['category']} | {s['quote']} | "
             f"{s['covered']} | {s['evals']} |"
@@ -238,87 +313,18 @@ def generate_report(
 
     report.append("---\n")
     report.append("## Scanned Evaluation Files\n")
+    eval_files = json_data["scanned_files"]["evaluations"]
     if eval_files:
         for ef in sorted(eval_files):
-            try:
-                rel_ef = ef.relative_to(agent_dir)
-            except ValueError:
-                rel_ef = ef
-            report.append(f"*   `{rel_ef}`")
+            report.append(f"*   `{ef}`")
     else:
         report.append("*No evaluation files scanned.*")
 
     output_file.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_file, "w", encoding="utf-8") as f:
+        f.write("\n".join(report))
 
-    if output_file.suffix.lower() == ".json":
-        import json
-
-        # Serialize path objects to strings for JSON
-        def _path_to_str(p):
-            try:
-                return str(p.relative_to(agent_dir))
-            except ValueError:
-                return str(p)
-
-        phantom_tools_str_keys = {
-            _path_to_str(k): list(v) for k, v in phantom_tools_by_file.items()
-        }
-
-        transfers_list = []
-        for from_a, to_a in declared_transfers:
-            desired = (from_a, to_a) in desired_transfers
-            tested = (from_a, to_a) in covered_transfers
-            evals = covered_transfers.get((from_a, to_a), [])
-            transfers_list.append({
-                "from_agent": from_a,
-                "to_agent": to_a,
-                "is_desired": desired,
-                "is_tested": tested,
-                "covering_evals": evals
-            })
-
-        json_data = {
-            "metrics": {
-                "tool_coverage_percent": tool_coverage_pct,
-                "instruction_segment_coverage_percent": overall_segment_pct,
-                "transfer_coverage_percent": transfer_coverage_pct,
-                "callback_coverage_percent": callback_coverage_pct,
-                "total_tools": len(total_tools),
-                "covered_tools": len(covered_tools),
-                "total_segments": total_segments,
-                "covered_segments": total_covered,
-                "total_transfers": total_transfers,
-                "covered_transfers": total_transfers_covered,
-                "total_callbacks": total_cbs,
-                "covered_callbacks": covered_cbs,
-                "category_counts": category_counts,
-                "category_covered_counts": category_covered_counts,
-            },
-            "errors": errors if errors else [],
-            "phantom_tools_by_file": phantom_tools_str_keys,
-            "tools": {
-                "covered": sorted(list(covered_tools)),
-                "uncovered": sorted(list(uncovered_tools))
-            },
-            "callbacks": {
-                "covered": sorted(list(covered_callbacks)),
-                "uncovered": sorted(list(total_callbacks - covered_callbacks))
-            },
-            "agent_transfers": transfers_list,
-            "scanned_files": {
-                "instructions": [_path_to_str(f) for f in instruction_files],
-                "evaluations": [_path_to_str(f) for f in eval_files]
-            },
-            "instruction_segments": instruction_segments,
-            "covered_instruction_segments": covered_instruction_segments
-        }
-        with open(output_file, "w", encoding="utf-8") as f:
-            json.dump(json_data, f, indent=2)
-    else:
-        with open(output_file, "w", encoding="utf-8") as f:
-            f.write("\n".join(report))
-
-    print(f"Successfully generated coverage report at: {output_file}")
+    print(f"Successfully generated markdown coverage report at: {output_file}")
 
 
 async def main():
@@ -331,7 +337,11 @@ async def main():
     parser.add_argument(
         "--output-file",
         required=True,
-        help="File path to save markdown coverage report or JSON.",
+        help="File path to save JSON coverage report.",
+    )
+    parser.add_argument(
+        "--markdown-report",
+        help="Optional file path to also save a detailed markdown report.",
     )
     parser.add_argument(
         "--project-id",
@@ -423,7 +433,7 @@ async def main():
         )
 
     # 5. Generate clean report
-    generate_report(
+    json_data = generate_json_report(
         output_file=output_file,
         total_tools=agent_data.all_tools,
         covered_tools=agent_data.covered_tools,
@@ -440,6 +450,10 @@ async def main():
         desired_transfers=agent_data.desired_transfers,
         errors=execution_errors,
     )
+
+    if args.markdown_report:
+        md_file = Path(args.markdown_report)
+        generate_markdown_report(json_data, md_file)
 
 
 if __name__ == "__main__":
