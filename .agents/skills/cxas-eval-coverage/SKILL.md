@@ -24,8 +24,8 @@ Use this skill to assess how comprehensively existing evaluations cover the agen
 3.  **Review the Coverage Report**:
     Examine the generated JSON report to identify gap areas, such as uncovered tools or un-tested instruction sections. Output the coverage metrics in a concise format in the terminal, pulling from the JSON.
 
-4.  **Generate Markdown Report (Optional)**:
-    If the user explicitly asks for a detailed markdown report, pass the `--markdown-report /path/to/coverage_report.md` flag to `calculate_coverage.py` to generate it alongside the JSON report.
+4.  **Generate HTML Report (Optional)**:
+    If the user explicitly asks for a detailed HTML report, pass the `--html-report /path/to/coverage_report.html` flag to `calculate_coverage.py` to generate it alongside the JSON report.
 ## Automation Scripts
 
 ### Calculate Coverage
@@ -39,7 +39,7 @@ python .agents/skills/cxas-eval-coverage/scripts/calculate_coverage.py \
   --agent-dir /path/to/agent/project \
   --output-file /path/to/coverage_report.json \
   --model gemini-2.5-flash \
-  --markdown-report /path/to/coverage_report.md
+  --html-report /path/to/coverage_report.html
 ```
 *Note: The `--model` flag allows you to choose the Gemini model (default is `gemini-2.5-flash`, but `gemini-2.5-pro` can be used for higher reasoning accuracy).*
 

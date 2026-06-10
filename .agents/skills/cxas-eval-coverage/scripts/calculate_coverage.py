@@ -177,192 +177,35 @@ def generate_json_report(
     return json_data
 
 
-def generate_markdown_report(
+def generate_html_report(
     json_data: Dict[str, Any], output_file: Path
 ) -> None:
-    """Generates a comprehensive markdown coverage report from JSON data.
+    """Generates a HTML coverage report
 
     Args:
         json_data: The structured coverage report data dictionary.
-        output_file: Path to write the generated markdown report.
+        output_file: Path to write the generated HTML report.
     """
-    report = []
-    report.append("# Evaluation Coverage Report\n")
+    template_path = Path(__file__).parent / "coverage_report_template.html"
+    if not template_path.exists():
+        raise FileNotFoundError(f"Template not found at {template_path}")
 
-    errors = json_data.get("errors", [])
-    if errors:
-        report.append("> [!CAUTION]")
-        report.append(
-            "> **API Errors Occurred:** The coverage calculations may be "
-            "inaccurate or incomplete due to the following errors during "
-            "execution:"
-        )
-        for err in sorted(set(errors)):
-            report.append(f"> *   {err}")
-        report.append("\n")
+    with open(template_path, "r", encoding="utf-8") as f:
+        template_content = f.read()
 
-    phantom_tools = json_data.get("phantom_tools_by_file", {})
-    if phantom_tools:
-        report.append("> [!WARNING]")
-        report.append(
-            "> The following tools are referenced in evaluations but "
-            "do not exist in the `tools/` directory:"
-        )
-        for ef, phantoms in sorted(phantom_tools.items()):
-            phantoms_str = ", ".join(f"`{p}`" for p in sorted(phantoms))
-            report.append(f"> *   `{ef}`: {phantoms_str}")
-        report.append("\n")
+    from datetime import datetime
+    generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    metrics = json_data["metrics"]
-    report.append("## Summary Metrics\n")
-    report.append("| Metric | Total | Covered | Coverage % |")
-    report.append("| :--- | :---: | :---: | :---: |")
-    report.append(
-        f"| **Tool Integrations** | {metrics['total_tools']} | "
-        f"{metrics['covered_tools']} | "
-        f"{metrics['tool_coverage_percent']:.1f}% |"
-    )
-    report.append(
-        f"| **Instruction Segments** | {metrics['total_segments']} | "
-        f"{metrics['covered_segments']} | "
-        f"{metrics['instruction_segment_coverage_percent']:.1f}% |"
-    )
-    report.append(
-        f"| **Agent Transfers** | {metrics['total_transfers']} | "
-        f"{metrics['covered_transfers']} | "
-        f"{metrics['transfer_coverage_percent']:.1f}% |"
-    )
-    report.append(
-        f"| **Callbacks** | {metrics['total_callbacks']} | "
-        f"{metrics['covered_callbacks']} | "
-        f"{metrics['callback_coverage_percent']:.1f}% |"
-    )
-    report.append("\n")
-
-    report.append("## Instruction Segment Category Breakdown\n")
-    report.append("| Category | Total | Covered | Coverage % |")
-    report.append("| :--- | :---: | :---: | :---: |")
-
-    cat_counts = metrics.get("category_counts", {})
-    cat_cov_counts = metrics.get("category_covered_counts", {})
-    for cat in sorted(cat_counts.keys()):
-        total = cat_counts[cat]
-        covered = cat_cov_counts.get(cat, 0)
-        pct = (covered / total * 100.0) if total else 0.0
-        report.append(f"| **{cat}** | {total} | {covered} | {pct:.1f}% |")
-
-    report.append("\n---\n")
-
-    report.append("## Uncovered Segments\n")
-    has_uncovered = False
-    for instruction_segment in json_data["instruction_segments"]:
-        if instruction_segment["covered"] == "No":
-            if not has_uncovered:
-                report.append("### Uncovered Segments")
-                has_uncovered = True
-            status = instruction_segment["covered"]
-            report.append(
-                f"*   `{instruction_segment['directive']}` ({status})"
-            )
-
-    if not has_uncovered:
-        report.append("All instruction segments are 100% covered by tests.")
-        report.append("")
-
-    report.append("---\n")
-    report.append("## Tool Coverage Breakdown\n")
-    report.append("### Covered Tools\n")
-    covered_tools = json_data["tools"]["covered"]
-    if covered_tools:
-        for t in sorted(covered_tools):
-            report.append(f"*   `{t}`")
-    else:
-        report.append("*No tools are covered by current evaluations.*")
-    report.append("")
-
-    report.append("### Uncovered Tools\n")
-    uncovered_tools = json_data["tools"]["uncovered"]
-    if uncovered_tools:
-        for t in sorted(uncovered_tools):
-            report.append(f"*   `{t}`")
-    else:
-        report.append("*All tools are fully covered by evaluations!*")
-    report.append("")
-
-    total_callbacks = metrics["total_callbacks"]
-    if total_callbacks:
-        report.append("---\n")
-        report.append("## Callback Coverage Breakdown\n")
-        report.append("### Covered Callbacks\n")
-        covered_callbacks = json_data["callbacks"]["covered"]
-        if covered_callbacks:
-            for cb in sorted(covered_callbacks):
-                report.append(f"*   `{cb}`")
-        else:
-            report.append("*No callbacks are covered by tests.*")
-        report.append("")
-
-        report.append("### Uncovered Callbacks\n")
-        uncovered_callbacks = json_data["callbacks"]["uncovered"]
-        if uncovered_callbacks:
-            for cb in sorted(uncovered_callbacks):
-                report.append(f"*   `{cb}`")
-        else:
-            report.append("*All callbacks are fully covered by tests!*")
-        report.append("")
-
-    report.append("---\n")
-    report.append("---\n")
-    report.append("## Agent Transfer Coverage\n")
-    report.append("| From Agent | To Agent | Desired? | Tested? | Eval Names |")
-    report.append("| :--- | :--- | :---: | :---: | :--- |")
-    for transfer in json_data.get("agent_transfers", []):
-        from_a = transfer["from_agent"]
-        to_a = transfer["to_agent"]
-        desired = "Yes" if transfer["is_desired"] else "No"
-        tested = "Yes" if transfer["is_tested"] else "No"
-        evals_list = transfer.get("covering_evals", [])
-        evals_str = ", ".join(evals_list) if evals_list else "None"
-        report.append(
-            f"| `{from_a}` | `{to_a}` | {desired} | {tested} | {evals_str} |"
-        )
-    report.append("\n---\n")
-
-    report.append("## Instruction Files Scanned\n")
-    for f in json_data["scanned_files"]["instructions"]:
-        report.append(f"*   `{f}`")
-    report.append("")
-
-    report.append(
-        "### Instruction Segments to Evaluation Files Detailed Mapping\n"
-    )
-    report.append(
-        "| # | Agent | Category | Instruction Quote | Covered? | "
-        "Covering Eval(s) |\n"
-        "|---|-------|----------|-------------------|----------|"
-        "-------------------|"
-    )
-    for idx, s in enumerate(json_data["instruction_segments"], start=1):
-        report.append(
-            f"| {idx} | {s['agent']} | {s['category']} | {s['quote']} | "
-            f"{s['covered']} | {s['evals']} |"
-        )
-    report.append("")
-
-    report.append("---\n")
-    report.append("## Scanned Evaluation Files\n")
-    eval_files = json_data["scanned_files"]["evaluations"]
-    if eval_files:
-        for ef in sorted(eval_files):
-            report.append(f"*   `{ef}`")
-    else:
-        report.append("*No evaluation files scanned.*")
+    # Perform simple placeholder replacement to keep HTML completely self-contained.
+    html = template_content.replace("{{ generated_at }}", generated_at)
+    data_json_str = json.dumps(json_data, indent=2, ensure_ascii=False)
+    html = html.replace("{{ data_json | safe }}", data_json_str)
 
     output_file.parent.mkdir(parents=True, exist_ok=True)
     with open(output_file, "w", encoding="utf-8") as f:
-        f.write("\n".join(report))
+        f.write(html)
 
-    print(f"Successfully generated markdown coverage report at: {output_file}")
+    print(f"Successfully generated HTML coverage report at: {output_file}")
 
 
 async def main() -> None:
@@ -379,8 +222,8 @@ async def main() -> None:
         help="File path to save JSON coverage report.",
     )
     parser.add_argument(
-        "--markdown-report",
-        help="Optional file path to also save a detailed markdown report.",
+        "--html-report",
+        help="Optional file path to also save an interactive HTML report.",
     )
     parser.add_argument(
         "--project-id",
@@ -497,9 +340,9 @@ async def main() -> None:
         errors=execution_errors,
     )
 
-    if args.markdown_report:
-        md_file = Path(args.markdown_report)
-        generate_markdown_report(json_data, md_file)
+    if args.html_report:
+        html_file = Path(args.html_report)
+        generate_html_report(json_data, html_file)
 
 
 if __name__ == "__main__":
