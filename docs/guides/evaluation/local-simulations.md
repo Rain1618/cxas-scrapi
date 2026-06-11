@@ -237,11 +237,17 @@ eval_conv = sim_evals.simulate_conversation(
 )
 ```
 
-### Via CLI simulation runner
-If running simulations using the `scrapi-sim-runner.py` script:
+### Via CLI
+Run your simulations in bulk using the `cxas evals report` command with the `--run` and `--include sims` flags, specifying the agent app name, output directory, parallel workers, and the `--use-tool-fakes` flag:
 
 ```bash
-python .agents/skills/cxas-agent-foundry/scripts/scrapi-sim-runner.py run --parallel 5 --use-tool-fakes
+cxas evals report \
+    --run \
+    --include sims \
+    --app-name "projects/my-project/locations/us/apps/my-app" \
+    --output-dir "eval-reports" \
+    --sim-parallel 5 \
+    --use-tool-fakes
 ```
 
 ---
