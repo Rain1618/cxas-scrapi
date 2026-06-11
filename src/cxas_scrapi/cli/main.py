@@ -624,7 +624,6 @@ def test_tools(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
-
 def test_callbacks(args: argparse.Namespace) -> None:
     """Handles the 'test-callbacks' command."""
 
