@@ -218,6 +218,34 @@ for _, row in failed.iterrows():
 
 ---
 
+## Using Tool Fakes
+
+By default, simulations execute real tool calls (including webhooks or database queries) when the agent invokes a tool. During testing, you can enable **Tool Fakes** to tell the platform to return pre-defined mock/fake responses instead of running the actual tool backend.
+
+> [!NOTE]
+> Tool fakes (mock tool responses) are defined per-tool within the Agent Studio Console. See the [Tool Design - Mock Tool Responses](file:///Users/alexanderyu/Desktop/cxas-scrapi/docs/design-guide/tool-design.md#mock-tool-responses-tool-fakes) guide for how to configure these in the console and write the mock handler scripts.
+
+To enable tool fakes in your simulations:
+
+### Programmatically
+Pass `use_tool_fakes=True` when calling `simulate_conversation` or `run_simulations`:
+
+```python
+eval_conv = sim_evals.simulate_conversation(
+    test_case=test_case,
+    use_tool_fakes=True,  # Bypasses real tool backends
+)
+```
+
+### Via CLI simulation runner
+If running simulations using the `scrapi-sim-runner.py` script:
+
+```bash
+python .agents/skills/cxas-agent-foundry/scripts/scrapi-sim-runner.py run --parallel 5 --use-tool-fakes
+```
+
+---
+
 ## Tips for writing good simulations
 
 **Keep steps focused**

@@ -146,8 +146,8 @@ cxas run --app-name "$APP" --wait --filter-auto-metrics
 echo "Golden evals passed"
 
 # 4. Local simulations (slowest — run last)
-# Use the skills system's sim runner for parallel execution:
-python .agents/skills/cxas-agent-foundry/scripts/scrapi-sim-runner.py run --parallel 5
+# Use the skills system's sim runner for parallel execution with tool fakes enabled:
+python .agents/skills/cxas-agent-foundry/scripts/scrapi-sim-runner.py run --parallel 5 --use-tool-fakes
 echo "Simulation evals passed"
 
 echo "All evaluations passed!"
