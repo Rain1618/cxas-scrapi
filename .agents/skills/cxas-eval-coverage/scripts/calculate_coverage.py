@@ -47,6 +47,7 @@ def generate_json_report(
     total_callbacks: Set[str],
     covered_callbacks: Set[str],
     desired_transfers: Set[Tuple[str, str]],
+    unused_evals: List[str],
     errors: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Generates a JSON coverage report and returns the data.
@@ -66,6 +67,7 @@ def generate_json_report(
         total_callbacks: Set of all discovered callbacks.
         covered_callbacks: Set of covered callbacks.
         desired_transfers: Set of desired sub-agent transfers.
+        unused_evals: List of unused evaluation names.
         errors: Optional list of execution error messages.
 
     Returns:
@@ -166,6 +168,7 @@ def generate_json_report(
             "instructions": [_path_to_str(f) for f in instruction_files],
             "evaluations": [_path_to_str(f) for f in eval_files],
         },
+        "unused_evals": unused_evals,
         "instruction_segments": instruction_segments,
         "covered_instruction_segments": covered_instruction_segments,
     }
@@ -321,7 +324,17 @@ async def main() -> None:
             "misspelled.\n"
         )
 
-    # 5. Generate clean report
+    # 5. Compute unused evals
+    all_eval_names = {chunk["eval_name"] for chunk in agent_data.eval_chunks}
+    used_eval_names = set()
+    for evals in agent_data.covered_transfers.values():
+        used_eval_names.update(evals)
+    for seg in covered_instruction_segments:
+        if seg.get("evals"):
+            used_eval_names.update(seg["evals"])
+    unused_evals = sorted(list(all_eval_names - used_eval_names))
+
+    # 6. Generate clean report
     json_data = generate_json_report(
         output_file=output_file,
         total_tools=agent_data.all_tools,
@@ -337,6 +350,7 @@ async def main() -> None:
         total_callbacks=agent_data.all_callbacks,
         covered_callbacks=agent_data.covered_callbacks,
         desired_transfers=agent_data.desired_transfers,
+        unused_evals=unused_evals,
         errors=execution_errors,
     )
 

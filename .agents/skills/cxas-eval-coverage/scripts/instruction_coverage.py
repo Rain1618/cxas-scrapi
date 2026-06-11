@@ -68,10 +68,11 @@ class InstructionSegmentCoverageResult(BaseModel):
             "instruction, false otherwise."
         )
     )
-    covering_chunk_index: int = Field(
+    covering_chunk_indices: List[int] = Field(
+        default_factory=list,
         description=(
-            "The 0-based index of the candidate chunk that tests the "
-            "instruction. Set to -1 if none."
+            "The 0-based indices of all candidate chunks that test the "
+            "instruction. Empty list if none."
         )
     )
     reasoning: str = Field(
@@ -270,7 +271,7 @@ async def extract_instruction_coverage(
         instruction_text: str,
         candidate_chunks: List[Dict[str, Any]],
         idx: int,
-    ) -> Tuple[int, bool, int, str]:
+    ) -> Tuple[int, bool, List[int], str]:
         async with judge_sem:
             chunks_formatted_text = ""
             for c_idx, c in enumerate(candidate_chunks):
@@ -291,7 +292,7 @@ async def extract_instruction_coverage(
             {chunks_formatted_text}
 
             Analyze the Candidate Evaluation Chunks carefully.
-            Determine if ANY of these evaluation chunks explicitly test or
+            Determine which of these evaluation chunks explicitly test or
             provide a natural opportunity to demonstrate that the Agent follows
             the provided Agent Instruction.
             - For general persona, tone, or behavioral constraints (e.g., "be
@@ -302,8 +303,8 @@ async def extract_instruction_coverage(
               specific rule or guardrail that is explicitly not triggered,
               tested, or challenged by the evaluation chunk.
             Answer true in `is_covered` if at least one evaluation chunk covers
-            or allows natural demonstration of the instruction, and identify the
-            FIRST covering chunk's index (0-based) in `covering_chunk_index`.
+            or allows natural demonstration of the instruction, and list the
+            0-based indices of all covering chunks in `covering_chunk_indices`.
             """
             try:
                 llm_response = await gemini_client.generate_async(
@@ -315,28 +316,29 @@ async def extract_instruction_coverage(
 
                 if llm_response:
                     is_cov = getattr(llm_response, "is_covered", False)
-                    c_idx = getattr(llm_response, "covering_chunk_index", -1)
+                    c_indices = getattr(llm_response, "covering_chunk_indices", [])
                     reasoning = getattr(llm_response, "reasoning", "")
 
                     if isinstance(llm_response, dict):
                         is_cov = llm_response.get("is_covered", False)
-                        c_idx = llm_response.get("covering_chunk_index", -1)
+                        c_indices = llm_response.get("covering_chunk_indices", [])
                         reasoning = llm_response.get("reasoning", "")
 
-                    return idx, is_cov, c_idx, reasoning
+                    return idx, is_cov, c_indices, reasoning
             except (OSError, UnicodeDecodeError) as e:
                 err_msg = f"LLM call failed for instruction segment {idx}: {e}"
                 print(err_msg)
                 if errors is not None:
                     errors.append(err_msg)
 
-            return idx, False, -1, ""
+            return idx, False, [], ""
 
     # Initialize coverage states
     segment_states = []
     for i, instruction_segment in enumerate(instruction_segments):
         covered = False
         covering_evals = set()
+        covering_chunk_texts = []
 
         text_to_check = instruction_segment["full_text"].lower()
         match_tool = re.search(r"\{@TOOL[:\s]+([^}]+)\}", text_to_check)
@@ -347,11 +349,13 @@ async def extract_instruction_coverage(
                 for chunk in eval_chunks:
                     if tool_name in chunk["text"]:
                         covering_evals.add(chunk["eval_name"])
+                        covering_chunk_texts.append(chunk["text"])
 
         segment_states.append(
             {
                 "covered": covered,
                 "covering_evals": covering_evals,
+                "covering_chunk_texts": covering_chunk_texts,
                 "candidate_chunks": [],
             }
         )
@@ -401,18 +405,20 @@ async def extract_instruction_coverage(
         )
         llm_results = await asyncio.gather(*llm_tasks)
 
-        for idx, is_cov, c_idx, reasoning in llm_results:
+        for idx, is_cov, c_indices, reasoning in llm_results:
             segment_states[idx]["reasoning"] = reasoning
             candidates = segment_states[idx]["candidate_chunks"]
-            if is_cov and 0 <= c_idx < len(candidates):
+            if is_cov and c_indices:
                 segment_states[idx]["covered"] = True
-                covering_chunk = candidates[c_idx]
-                segment_states[idx]["covering_evals"].add(
-                    covering_chunk["eval_name"]
-                )
-                segment_states[idx]["covering_chunk_text"] = (
-                    covering_chunk["text"]
-                )
+                for c_idx in c_indices:
+                    if 0 <= c_idx < len(candidates):
+                        covering_chunk = candidates[c_idx]
+                        segment_states[idx]["covering_evals"].add(
+                            covering_chunk["eval_name"]
+                        )
+                        segment_states[idx]["covering_chunk_texts"].append(
+                            covering_chunk["text"]
+                        )
 
     # 4. Finalize segments
     covered_instruction_segments = []
@@ -429,8 +435,8 @@ async def extract_instruction_coverage(
                 "reasoning", "No covering evaluation found."
             )
 
-        instruction_segment["covering_chunk_text"] = state.get(
-            "covering_chunk_text", ""
+        instruction_segment["covering_chunk_texts"] = state.get(
+            "covering_chunk_texts", []
         )
 
         if state["covered"]:
@@ -440,9 +446,7 @@ async def extract_instruction_coverage(
             instruction_segment["covered"] = "No"
 
         evals_set = state["covering_evals"]
-        instruction_segment["evals"] = (
-            ", ".join(sorted(evals_set)) if evals_set else "None"
-        )
+        instruction_segment["evals"] = sorted(list(evals_set))
 
     return instruction_segments, covered_instruction_segments
 

@@ -779,6 +779,30 @@
             </li>
           </ul>
         </div>
+
+        <!-- Unused Evaluations Card -->
+        <div class="card">
+          <div class="card-title">
+            <i class="material-icons" style="color: var(--google-red);">warning</i>
+            Unused Evaluations
+          </div>
+          <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">
+            The following evaluation test cases were not found to cover any instruction segments or agent transfers.
+          </p>
+          <h4 style="margin: 8px 0 8px; font-size: 13px; color: var(--text-muted); text-transform: uppercase;">
+            Unused Evals ([[ data.unused_evals.length ]])
+          </h4>
+          <ul class="scanned-list" style="max-height: 240px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 8px; padding: 4px; background: white;">
+            <li class="scanned-item" ng-repeat="ev in data.unused_evals">
+              <i class="material-icons" style="color: var(--google-red);">highlight_off</i>
+              <code style="word-break: break-all;">[[ ev ]]</code>
+            </li>
+            <li class="scanned-item" ng-if="data.unused_evals.length === 0">
+              <span style="color: var(--text-muted); font-style: italic;">All evaluations are utilized.</span>
+            </li>
+          </ul>
+        </div>
+
       </div>
 
     </div>
@@ -840,9 +864,9 @@
             </td>
             <td>
               <div class="pill-list" ng-if="s.evals.length > 0">
-                <span class="pill-eval" ng-repeat="ev in s.evals.split(', ')">[[ ev ]]</span>
+                <span class="pill-eval" ng-repeat="ev in s.evals">[[ ev ]]</span>
               </div>
-              <span ng-if="!s.evals || s.evals === 'None' || s.evals.length === 0" style="color: var(--text-muted); font-style: italic;">None</span>
+              <span ng-if="!s.evals || s.evals.length === 0" style="color: var(--text-muted); font-style: italic;">None</span>
             </td>
           </tr>
         </tbody>
@@ -1023,7 +1047,7 @@
         <div ng-if="selectedSegment.evals.length > 0" style="margin-top: 16px;">
           <h4 style="margin: 16px 0 8px; color: var(--text-muted); font-size: 13px; text-transform: uppercase;">Associated Evaluation Files</h4>
           <div class="pill-list" style="margin-top: 8px;">
-            <span class="pill-eval" ng-repeat="ev in selectedSegment.evals.split(', ')">[[ ev ]]</span>
+            <span class="pill-eval" ng-repeat="ev in selectedSegment.evals">[[ ev ]]</span>
           </div>
         </div>
       </div>
