@@ -587,6 +587,7 @@ def combined_evals_report_cmd(args: argparse.Namespace) -> None:
         burst_noise_files=getattr(args, "burst_noise_files", "").split(",")
         if getattr(args, "burst_noise_files", None)
         else None,
+        use_tool_fakes=getattr(args, "use_tool_fakes", False),
     )
     print(f"Combined report generated at {output_path}")
 
@@ -1487,6 +1488,11 @@ def get_parser() -> argparse.ArgumentParser:
             "Optional: Comma-separated list of paths to burst noise audio "
             "files."
         ),
+    )
+    parser_report.add_argument(
+        "--use-tool-fakes",
+        action="store_true",
+        help="Enable tool fakes (bypass real tool backends).",
     )
     parser_report.set_defaults(func=combined_evals_report_cmd)
 
