@@ -59,6 +59,7 @@ def test_combined_evals_report_cmd(tmp_path):
             self.input_dir = None
             self.modality = "text"
             self.runs = 1
+            self.use_tool_fakes = False
 
     args = Args()
 
@@ -87,6 +88,7 @@ def test_combined_evals_report_cmd(tmp_path):
             golden_timeout=600,
             bg_noise_file=None,
             burst_noise_files=None,
+            use_tool_fakes=False,
         )
 
 
@@ -111,6 +113,7 @@ def test_combined_evals_report_cmd_with_modality_and_runs(tmp_path):
             self.input_dir = None
             self.modality = "audio"
             self.runs = 5
+            self.use_tool_fakes = False
 
     args = Args()
 
@@ -139,4 +142,5 @@ def test_combined_evals_report_cmd_with_modality_and_runs(tmp_path):
             golden_timeout=600,
             bg_noise_file=None,
             burst_noise_files=None,
+            use_tool_fakes=False,
         )
